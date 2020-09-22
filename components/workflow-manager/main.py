@@ -17,7 +17,7 @@ def hello_world():
 @app.route('/workflow/surveil', methods=['POST'])
 def compress():
     global swarm_client
-    
+
     content = request.json
 
     try:
@@ -37,10 +37,11 @@ def compress():
     return jsonify({"data_bytes": str(compressed_data)})
 
 if __name__ == "__main__": 
-    app.run(host ='0.0.0.0', port = 7000, debug = True)
-
     # TODO: connect to swarm
+    global swarm_client
     swarm_client = docker.from_env()
+
+    app.run(host ='0.0.0.0', port = 7000, debug = True)
 
     # TODO: create workflow manager instance
     # workflowHandler = WorkflowHandler()
