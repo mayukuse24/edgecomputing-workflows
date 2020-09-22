@@ -14,7 +14,7 @@ swarm_client = None
 def hello_world():
     return 'Welcome to the workflow manager'
 
-@app.route('/workflow/surveil/', methods=['POST'])
+@app.route('/workflow/surveil', methods=['POST'])
 def compress():
     content = request.json
 
@@ -24,7 +24,7 @@ def compress():
         return jsonify({"error": "data to compress not passed in input"})
 
     print("Swarm client obj", swarm_client)
-    
+
     # TODO: execute workflow. Do this async?
     # WorkflowHandler.run_workflow_a(swarm_client, input_data, persist=True/False)
 
@@ -35,7 +35,7 @@ def compress():
     return jsonify({"data_bytes": str(compressed_data)})
 
 if __name__ == "__main__": 
-    app.run(host ='0.0.0.0', port = 5000, debug = True)
+    app.run(host ='0.0.0.0', port = 7000, debug = True)
 
     # TODO: connect to swarm
     swarm_client = docker.from_env()
