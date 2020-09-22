@@ -38,7 +38,6 @@ def compress():
 
 if __name__ == "__main__": 
     # TODO: connect to swarm
-    global swarm_client
     swarm_client = docker.from_env()
 
     app.run(host ='0.0.0.0', port = 7000, debug = True)
