@@ -16,6 +16,8 @@ def hello_world():
 
 @app.route('/workflow/surveil', methods=['POST'])
 def compress():
+    global swarm_client
+    
     content = request.json
 
     try:
