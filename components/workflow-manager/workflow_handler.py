@@ -44,7 +44,7 @@ class WorkflowHandler():
         
         service = self.swarm_client.services.create(
             image=image,
-            name=name,
+            name='{name}-{port}'.format(name=name, port=random_port),
             endpoint_spec=endpoint_spec
         )
 
