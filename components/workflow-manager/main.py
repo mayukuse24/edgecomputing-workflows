@@ -1,5 +1,6 @@
 import gzip
 import json
+import requests
 
 from flask import Flask, request, jsonify
 import docker
@@ -8,7 +9,7 @@ from workflow_handler import WorkflowHandler
 
 app = Flask(__name__)
 
-swarm_client = None
+workflow_handler = None
 
 @app.route('/')
 def hello_world():
@@ -16,29 +17,24 @@ def hello_world():
 
 @app.route('/workflow/surveil', methods=['POST'])
 def compress():
-    global swarm_client
+    global workflow_handler
 
     content = request.json
 
     try:
         data = content["data"]
     except KeyError:
-        return jsonify({"error": "data to compress not passed in input"})
-
-    print("Swarm client obj", swarm_client)
+        return jsonify({"error": "data point not provided"})
 
     # TODO: execute workflow. Do this async?
-    # WorkflowHandler.run_workflow_a(swarm_client, input_data, persist=True/False)
+    result = workflow_handler.run_workflow_a(data, persist=False)
 
-    json_data = json.dumps(data).encode('utf-8')
+    # json_data = json.dumps(result).encode('utf-8')
 
-    compressed_data = gzip.compress(json_data)
-
-    return jsonify({"data_bytes": str(compressed_data)})
+    return jsonify({"response": result})
 
 if __name__ == "__main__": 
-    # TODO: connect to swarm
-    swarm_client = docker.from_env()
+    workflow_handler = WorkflowHandler()
 
     app.run(host ='0.0.0.0', port = 7000, debug = True)
 
