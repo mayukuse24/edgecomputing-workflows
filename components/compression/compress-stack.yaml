@@ -1,0 +1,7 @@
+version: '3.1'
+
+services:
+  bb-app:
+    image: mayukuse2424/edgecomputing-compression
+    ports:
+      - "5001:5001"
