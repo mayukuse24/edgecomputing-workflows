@@ -62,15 +62,38 @@ class WorkflowHandler():
         print("Starting compression service")
         compress_spec = self.create_service('compression', 'mayukuse2424/edgecomputing-compression', 5001)
 
+        print("Starting text classification service")
+        classifier_spec = self.create_service('text_classification', 'quay.io/codait/max-toxic-comment-classifier', 5000)
+
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
+        print("Sending payload to compress")
+
         payload = {"type": "gzip","data": input_data}
 
         resp = self._send_request(compress_spec['port'], '/compress', payload)
 
+        print("Compression response", resp)
+
+        print("Sending payload to classify")
+
+        payload = {
+            "text": [
+                "I would like to punch you.",
+                "In hindsight, I do apologize for my previous statement."
+            ]
+        }
+
+        resp = self._send_request(classifier_spec['port'], '/model/predict', payload)
+
+        print("Text classification response", resp)
+
         # TODO: terminate containers if not persist
         print("Stopping compression service")
         compress_spec['service_obj'].remove()
+
+        print("Stopping text classification service")
+        classifier_spec['service_obj'].remove()
 
         return resp
 
