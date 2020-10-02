@@ -27,7 +27,7 @@ def compress():
         return jsonify({"error": "data point not provided"})
 
     # TODO: execute workflow. Do this async?
-    result = workflow_handler.run_workflow_a(data, persist=False)
+    result = workflow_handler.run_workflow_a_temp(data)
 
     # json_data = json.dumps(result).encode('utf-8')
 
