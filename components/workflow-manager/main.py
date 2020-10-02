@@ -19,15 +19,16 @@ def hello_world():
 def compress():
     global workflow_handler
 
-    content = request.json
+    audio = request.files['audio']
 
-    try:
-        data = content["data"]
-    except KeyError:
-        return jsonify({"error": "data point not provided"})
+    #try:
+    #    data = content["data"]
+    #except KeyError:
+    #    return jsonify({"error": "data point not provided"})
 
     # TODO: execute workflow. Do this async?
-    result = workflow_handler.run_workflow_a(data, persist=False)
+    result = workflow_handler.run_workflow_a(audio, persist=False)
+    #result = workflow_handler.run_workflow_a(data, persist=False)
 
     # json_data = json.dumps(result).encode('utf-8')
 

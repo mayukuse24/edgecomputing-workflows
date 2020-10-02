@@ -34,7 +34,7 @@ class WorkflowHandler():
         # TODO: use domain name instead of ips
         return self.http_session.post(
             'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
-            json=payload
+            files=payload
         ).json()
 
     def create_service(self, name, image, internal_port):
@@ -59,18 +59,21 @@ class WorkflowHandler():
 
     def run_workflow_a(self, input_data, persist):
         # TODO: create(if not persist) or retrieve required docker containers
-        print("Starting compression service")
-        compress_spec = self.create_service('compression', 'mayukuse2424/edgecomputing-compression', 5001)
-
+        print("Starting speech service")
+	speech_spec = self.create_service('speech', 'codait/max-speech-to-text-converter', 5000)
+        #compress_spec = self.create_service('compression', 'mayukuse2424/edgecomputing-compression', 5001)
+	print('Done creating service')
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
-        payload = {"type": "gzip","data": input_data}
-
-        resp = self._send_request(compress_spec['port'], '/compress', payload)
-
+        payload = {"audio": input_data}
+	
+	resp = self._send_request(speech_spec['port'], '/model/predict',payload)
+        #resp = self._send_request(compress_spec['port'], '/compress', payload)
+	print('Got response')
         # TODO: terminate containers if not persist
-        print("Stopping compression service")
-        compress_spec['service_obj'].remove()
+        print("Stopping speech service")
+        speech_spec['service_obj'].remove()
+	#compress_spec['service_obj'].remove()
 
         return resp
 
