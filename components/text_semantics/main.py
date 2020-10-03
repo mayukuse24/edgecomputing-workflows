@@ -95,7 +95,7 @@ def component_interface():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host="0.0.0.0",port = 5000,debug=True)
     #get_keywords(" The cat stretched. Jacob stood on his tiptoes.::$%$ The car turned the corner. Kelly twirled in circles. She opened the door. Aaron made a picture.\n  I'm sorry. I danced.\n   Sarah and Ira drove to the store.  Jenny and I opened all the gifts.  The cat and dog ate.  My parents and I went to a movie.  Mrs. Juarez and Mr. Smith are dancing gracefully.  Samantha, Elizabeth, and Joan are on the committee.   The mangy, scrawny stray dog hurriedly gobbled down the grain-free, organic dog food.  I quickly put on my red winter jacket, black snow pants, waterproof boots, homemade mittens, and handknit scarf.  The incessant ticking and chiming echoed off the weathered walls of the clock repair shop.  Nervously, I unfolded the wrinkled and stained letter from my long-dead ancestor.  Into the suitcase, I carelessly threw a pair of ripped jeans, my favorite sweater from high school, an old pair of tube socks with stripes, and $20,000 in cash. The ham, green beans, mashed potatoes, and corn are gluten-free.  The paper and pencil sat idle on the desk.")
 
 

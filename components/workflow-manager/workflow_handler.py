@@ -19,8 +19,8 @@ class WorkflowHandler():
         newly created services/containers to start 
         '''
         retry_strategy = Retry(
-            total=10,
-            backoff_factor=1
+            total=20,
+            backoff_factor=50
         )
 
         adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -64,12 +64,19 @@ class WorkflowHandler():
 
         print("Starting text classification service")
         classifier_spec = self.create_service('text_classification', 'quay.io/codait/max-toxic-comment-classifier', 5000)
+        
+        print("Starting text keywordservice")
+        text_sem_spec = self.create_service('text_keywords','sayerwer/text_semantics',5000)
 
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
         print("Sending payload to compress")
 
         payload = {"type": "gzip","data": input_data}
+        
+        test_text_info = {'data':"The cat stretched. Jacob stood on his tiptoes. The car turned the corner. Kelly twirled in circles. She opened the door. Aaron made a picture.\n  I'm sorry. I danced.\n   Sarah and Ira drove to the store.  Jenny and I opened all the gifts.  The cat and dog ate.  My parents and I went to a movie.  Mrs. Juarez and Mr. Smith are dancing gracefully.  Samantha, Elizabeth, and Joan are on the committee.   The mangy, scrawny stray dog hurriedly gobbled down the grain-free, organic dog food."}
+        
+        text_info_resp = self._send_request(text_sem_spec['port'], '/text_keywords', test_text_info)
 
         resp = self._send_request(compress_spec['port'], '/compress', payload)
 
@@ -87,6 +94,8 @@ class WorkflowHandler():
         resp = self._send_request(classifier_spec['port'], '/model/predict', payload)
 
         print("Text classification response", resp)
+        
+        print("Text Keywords response", text_info_resp)
 
         # TODO: terminate containers if not persist
         print("Stopping compression service")
@@ -95,6 +104,8 @@ class WorkflowHandler():
         print("Stopping text classification service")
         classifier_spec['service_obj'].remove()
 
+        print("Stopping Text Keywords service")
+        text_sem_spec['service_obj'].remove()
         return resp
 
 

@@ -10,4 +10,5 @@ RUN python -m nltk.downloader 'wordnet'
 RUN python -m nltk.downloader 'sentiwordnet'
 RUN python -m nltk.downloader 'punkt'
 RUN python -m spacy download en_core_web_sm
+EXPOSE 5000 
 CMD ["python","./main.py"]
