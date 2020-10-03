@@ -1,6 +1,7 @@
 import requests
 import time
 import random
+from pymongo import MongoClient
 
 import docker
 from requests.adapters import HTTPAdapter
@@ -42,10 +43,16 @@ class WorkflowHandler():
 
         endpoint_spec = docker.types.EndpointSpec(ports={random_port:internal_port})
         
+        mount = []
+        
+        if name == 'mongo':
+            mount = ["/data/db:mongodb_mongo-data-1", "/data/configdb/mongodb_mongo-config-1"]
+        
         service = self.swarm_client.services.create(
             image=image,
             name='{name}-{port}'.format(name=name, port=random_port),
             endpoint_spec=endpoint_spec
+            mounts=mount
         )
 
         # TODO: Add service spec to map if persist=True
@@ -68,6 +75,19 @@ class WorkflowHandler():
         print("Starting text keywordservice")
         text_sem_spec = self.create_service('text_keywords','sayerwer/text_semantics',5000)
 
+        print("Starting mongo service")
+        mongo_spec = self.create_service('mongodb', 'mongo', 27017)
+        #mongo_url = "mongodb://localhost"
+        #client = MongoClient(mongo_url)
+        #db = client["audio"] #using a database named audio
+	
+        #inserted = {"filename":"need to pull name here", "filesize":"14 Zetabytes", "additional details":"will be determined in the future"}
+	
+        #audio_files = db["files"]
+        #output = audio_files.insert_one(inserted)
+
+        #print("Data pushed to db... " + str(output))
+        
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
         print("Sending payload to compress")
@@ -98,6 +118,9 @@ class WorkflowHandler():
         print("Text Keywords response", text_info_resp)
 
         # TODO: terminate containers if not persist
+        print("Stopping mongo service")
+        mongo_spec['service_obj'].remove()
+        
         print("Stopping compression service")
         compress_spec['service_obj'].remove()
 
