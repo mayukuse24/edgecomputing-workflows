@@ -34,7 +34,7 @@ def compress():
     else:
         result = workflow_handler.run_workflow_a_persist(data)
 
-    return jsonify({"response": result})
+    return jsonify({"status": "ok"})
 
 if __name__ == "__main__": 
     workflow_handler = WorkflowHandler()
