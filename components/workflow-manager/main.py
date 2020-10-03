@@ -19,6 +19,8 @@ def hello_world():
 def compress():
     global workflow_handler
 
+    is_persist = request.args.get('persist', False)
+
     content = request.json
 
     try:
@@ -27,9 +29,10 @@ def compress():
         return jsonify({"error": "data point not provided"})
 
     # TODO: execute workflow. Do this async?
-    result = workflow_handler.run_workflow_a_temp(data)
-
-    # json_data = json.dumps(result).encode('utf-8')
+    if is_persist is False:
+        result = workflow_handler.run_workflow_a_temp(data)
+    else:
+        result = workflow_handler.run_workflow_a_persist(data)
 
     return jsonify({"response": result})
 
