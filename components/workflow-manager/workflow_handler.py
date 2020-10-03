@@ -1,6 +1,7 @@
 import requests
 import time
 import random
+from pymongo import MongoClient
 
 import docker
 from requests.adapters import HTTPAdapter
@@ -33,8 +34,8 @@ class WorkflowHandler():
         newly created services/containers to start 
         '''
         retry_strategy = Retry(
-            total=10,
-            backoff_factor=1
+            total=20,
+            backoff_factor=50
         )
 
         adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -56,10 +57,16 @@ class WorkflowHandler():
 
         endpoint_spec = docker.types.EndpointSpec(ports={random_port:internal_port})
         
+        mount = []
+        
+        if name == 'mongo':
+            mount = ["/data/db:mongodb_mongo-data-1", "/data/configdb/mongodb_mongo-config-1"]
+        
         service = self.swarm_client.services.create(
             image=image,
             name='{name}-temp-{port}'.format(name=name, port=random_port),
-            endpoint_spec=endpoint_spec
+            endpoint_spec=endpoint_spec,
+            mounts=mount
         )
 
         # TODO: Add service spec to map if persist=True
@@ -116,12 +123,32 @@ class WorkflowHandler():
 
         print("Starting text classification service")
         classifier_spec = self.create_service_temp('text_classification', 'quay.io/codait/max-toxic-comment-classifier', 5000)
+        
+        print("Starting text keywordservice")
+        text_sem_spec = self.create_service_temp('text_keywords','sayerwer/text_semantics',5000)
 
+        print("Starting mongo service")
+        mongo_spec = self.create_service_temp('mongodb', 'mongo', 27017)
+        #mongo_url = "mongodb://localhost"
+        #client = MongoClient(mongo_url)
+        #db = client["audio"] #using a database named audio
+	
+        #inserted = {"filename":"need to pull name here", "filesize":"14 Zetabytes", "additional details":"will be determined in the future"}
+	
+        #audio_files = db["files"]
+        #output = audio_files.insert_one(inserted)
+
+        #print("Data pushed to db... " + str(output))
+        
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
         print("Sending payload to compress")
 
         payload = {"type": "gzip","data": input_data}
+        
+        test_text_info = {'data':"The cat stretched. Jacob stood on his tiptoes. The car turned the corner. Kelly twirled in circles. She opened the door. Aaron made a picture.\n  I'm sorry. I danced.\n   Sarah and Ira drove to the store.  Jenny and I opened all the gifts.  The cat and dog ate.  My parents and I went to a movie.  Mrs. Juarez and Mr. Smith are dancing gracefully.  Samantha, Elizabeth, and Joan are on the committee.   The mangy, scrawny stray dog hurriedly gobbled down the grain-free, organic dog food."}
+        
+        text_info_resp = self._send_request(text_sem_spec['port'], '/text_keywords', test_text_info)
 
         resp = self._send_request(compress_spec['port'], '/compress', payload)
 
@@ -139,14 +166,21 @@ class WorkflowHandler():
         resp = self._send_request(classifier_spec['port'], '/model/predict', payload)
 
         print("Text classification response", resp)
+        
+        print("Text Keywords response", text_info_resp)
 
         # TODO: terminate containers
+        print("Stopping mongo service")
+        mongo_spec['service_obj'].remove()
+        
         print("Stopping compression service")
         compress_spec['service_obj'].remove()
 
         print("Stopping text classification service")
         classifier_spec['service_obj'].remove()
 
+        print("Stopping Text Keywords service")
+        text_sem_spec['service_obj'].remove()
         return resp
 
     def run_workflow_a_persist(self, input_data):
