@@ -68,6 +68,13 @@ class WorkflowHandler():
             json=payload
         ).json()
 
+    def _send_request_file(self, app_port, path, payload):
+        # TODO: use domain name instead of ips
+        return self.http_session.post(
+            'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
+            files=payload
+        ).json()
+
     def create_service_temp(self, name, image, internal_port, mounts=[]):
         random_port = random.randint(10000, 65500)
 
@@ -140,7 +147,11 @@ class WorkflowHandler():
         
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
-
+        print("Sending payload to convert speech to text")
+        payload = {"audio": input_data}
+        resp = self._send_request_file(specs['speech']['port'], '/model/predict',payload)
+        print("Speech to text response", resp)
+        #resp is in form of {"status": "ok", "prediction": "this text was obtained from audio"}
 
         print("Sending payload to obtain keywords from input")
         payload = {'data': input_data}
