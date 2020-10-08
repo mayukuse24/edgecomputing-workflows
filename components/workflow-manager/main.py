@@ -21,10 +21,10 @@ def compress():
 
     is_persist = request.args.get('persist', False)
 
-    content = request.json
+    #content = request.json
 
     try:
-        data = content["data"]
+        data = request.files["audio"]
     except KeyError:
         return jsonify({"error": "data point not provided"})
 
