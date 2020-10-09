@@ -1,5 +1,6 @@
 From python:3
 Add main.py /
+Copy ./sst-roberta-large-2020.06.08.tar.gz .
 RUN pip install nltk
 RUN pip install rake-nltk
 RUN pip install -U spacy
