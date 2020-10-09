@@ -32,6 +32,11 @@ COMPONENT_CONFIG_MAP = {
         'image': 'sayerwer/text_semantics:text_semantics',
         'internal_port': 5000,
         'target_port': 6004
+    },
+    'threat_analysis':{
+        'image': 'sayerwer/threadaud',
+        'internal_port': 5005,
+        'target_port': 6005
     }
 }
 
@@ -61,13 +66,19 @@ class WorkflowHandler():
 
         return http
 
-    def _send_request(self, app_port, path, payload):
+  def _send_request(self, app_port, path, payload):
         # TODO: use domain name instead of ips
-        return self.http_session.post(
-            'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
-            json=payload
-        ).json()
-
+        if '/audio_analysis' not in path:
+                 return self.http_session.post(
+                    'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
+                    json=payload
+                 ).json()
+        else:
+                 return self.http_session.put(
+                    'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
+                    json=payload
+                 ).json()
+                 
     def create_service_temp(self, name, image, internal_port, mounts=[]):
         random_port = random.randint(10000, 65500)
 
@@ -140,7 +151,10 @@ class WorkflowHandler():
         
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
-
+        
+        #payload = str.encode(input_data)
+        #resp = self._send_request(specs['audio_analysis']['port'], '/audio_analysis',payload)
+        #print(resp)
 
         print("Sending payload to obtain keywords from input")
         payload = {'data': input_data}
@@ -186,13 +200,17 @@ class WorkflowHandler():
 
         print("Starting mongo service")
         mongo_spec = self.create_service_temp('mongodb', 'mongo', 27017, mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
+        
+        print("Starting Audio Analysis service")
+        thread_spec = self.create_service_temp('audio_analysis', 'sayerwer/threataud', 5005)
 
         resp = self.run_dataflow_a({
             'speech': speech_spec,
             'compression': compress_spec,
             'text_classification': classifier_spec,
             'text_keywords': text_sem_spec,
-            'mongodb': mongo_spec
+            'mongodb': mongo_spec,
+            'audio_analysis': thread_spec
         }, input_data)
 
         # TODO: terminate containers
