@@ -2,6 +2,7 @@ import requests
 import time
 import random
 from pymongo import MongoClient
+from bson import Binary
 
 import docker
 from requests.adapters import HTTPAdapter
@@ -16,7 +17,7 @@ COMPONENT_CONFIG_MAP = {
     'mongodb': {
         'image': 'mongo',
         'internal_port': 27017,
-        'target_port': 6001
+        'target_port': 27017
     },
     'speech': {
         'image': 'codait/max-speech-to-text-converter',
@@ -138,17 +139,26 @@ class WorkflowHandler():
         return service_spec
 
     def run_dataflow_a(self, specs, input_data):
-        #mongo_url = "mongodb://localhost"
-        #client = MongoClient(mongo_url)
-        #db = client["audio"] #using a database named audio
+        mongo_url = "mongodb://10.176.67.87:27017"
+        client = MongoClient(mongo_url)
+        db = client["audio"] #using a database named audio
 	
         #inserted = {"filename":"need to pull name here", "filesize":"14 Zetabytes", "additional details":"will be determined in the future"}
 	
-        #audio_files = db["files"]
-        #output = audio_files.insert_one(inserted)
+	filename = "sample.mp3"
+	audio_file = open(filename, "rb")
+	audio_file_data = audio_file.read()
+	
+        audio_files = db["files"]
+	output = audio_files.insert_one({"filename": filename, "data":audio_file_data})
 
-        #print("Data pushed to db... " + str(output))
+        print("Data pushed to db... " + str(output))
         
+	query = { "filename":filename }
+	doc = audio_files.find(query)
+	for x in doc:
+		print(x)
+	
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
         
