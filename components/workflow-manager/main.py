@@ -21,12 +21,10 @@ def compress():
 
     is_persist = request.args.get('persist', False)
 
-    content = request.json
-
     try:
-        data = content["data"]
+        data = request.files["audio"]
     except KeyError:
-        return jsonify({"error": "data point not provided"})
+        return jsonify({"error": "audio file not provided"})
 
     # TODO: execute workflow. Do this async?
     if is_persist is False:
@@ -39,7 +37,4 @@ def compress():
 if __name__ == "__main__": 
     workflow_handler = WorkflowHandler()
 
-    app.run(host ='0.0.0.0', port = 7000, debug = True)
-
-    # TODO: create workflow manager instance
-    # workflowHandler = WorkflowHandler()
+    app.run(host ='0.0.0.0', port = 7002, debug = True)

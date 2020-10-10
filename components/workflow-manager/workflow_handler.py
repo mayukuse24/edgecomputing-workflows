@@ -17,10 +17,10 @@ COMPONENT_CONFIG_MAP = {
     'mongodb': {
         'image': 'mongo',
         'internal_port': 27017,
-        'target_port': 27017
+        'target_port': 6001
     },
     'speech': {
-        'image': 'codait/max-speech-to-text-converter',
+        'image': 'mayukuse2424/edgecomputing-speech-to-text',
         'internal_port': 5000,
         'target_port': 6002
     },
@@ -34,13 +34,12 @@ COMPONENT_CONFIG_MAP = {
         'internal_port': 5000,
         'target_port': 6004
     },
-    'threat_analysis':{
-        'image': 'sayerwer/threadaud',
+    'audio_analysis':{
+        'image': 'sayerwer/threataud',
         'internal_port': 5005,
         'target_port': 6005
     }
 }
-
 
 # TODO: switch to base class and inherit for each workflow
 class WorkflowHandler():
@@ -67,18 +66,13 @@ class WorkflowHandler():
 
         return http
 
-  def _send_request(self, app_port, path, payload):
+    def _send_request(self, app_port, path, json=None, files=None):
         # TODO: use domain name instead of ips
-        if '/audio_analysis' not in path:
-                 return self.http_session.post(
-                    'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
-                    json=payload
-                 ).json()
-        else:
-                 return self.http_session.put(
-                    'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
-                    json=payload
-                 ).json()
+        return self.http_session.post(
+                'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
+                json=json,
+                files=files
+            ).json()
                  
     def create_service_temp(self, name, image, internal_port, mounts=[]):
         random_port = random.randint(10000, 65500)
@@ -144,50 +138,53 @@ class WorkflowHandler():
         db = client["audio"] #using a database named audio
 	
         #inserted = {"filename":"need to pull name here", "filesize":"14 Zetabytes", "additional details":"will be determined in the future"}
-	
-	filename = "sample.mp3"
-	audio_file = open(filename, "rb")
-	audio_file_data = audio_file.read()
-	
-        audio_files = db["files"]
-	output = audio_files.insert_one({"filename": filename, "data":audio_file_data})
-
-        print("Data pushed to db... " + str(output))
+        """
+        filename = "sample.mp3"
+        audio_file = open(filename, "rb")
+        audio_file_data = audio_file.read()
         
-	query = { "filename":filename }
-	doc = audio_files.find(query)
-	for x in doc:
-		print(x)
-	
+            audio_files = db["files"]
+        output = audio_files.insert_one({"filename": filename, "data":audio_file_data})
+
+            print("Data pushed to db... " + str(output))
+            
+        query = { "filename":filename }
+        doc = audio_files.find(query)
+        for x in doc:
+            print(x)
+        """
+
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
         
-        #payload = str.encode(input_data)
-        #resp = self._send_request(specs['audio_analysis']['port'], '/audio_analysis',payload)
-        #print(resp)
+        print("Sending payload to convert speech to text")
+        payload = {"file": input_data}
+        resp = self._send_request(specs['speech']['port'], '/speech_to_text', files=payload)
+        print("Speech to text response", resp)
+        audio_to_text_data = resp['text']
+
+        print("Sending payload to analyse audio for tone")
+        payload = {"file": input_data}
+        resp = self._send_request(specs['audio_analysis']['port'], '/audio_analysis', files=payload)
+        print("Audio analysis response", resp)
 
         print("Sending payload to obtain keywords from input")
-        payload = {'data': input_data}
-        
-        resp = self._send_request(specs['text_keywords']['port'], '/text_keywords', payload)
+        payload = {'data': audio_to_text_data}
+        resp = self._send_request(specs['text_keywords']['port'], '/text_keywords', json=payload)
         print("Text keywords response", resp)
-
         
         print("Sending payload to compress input data")
-        payload = {"type": "gzip","data": input_data}
-
-        resp = self._send_request(specs['compression']['port'], '/compress', payload)
+        payload = {"type": "gzip","data": audio_to_text_data}
+        resp = self._send_request(specs['compression']['port'], '/compress', json=payload)
         print("Compression response", resp)
-
 
         print("Sending payload to classify text")
         payload = {
             "text": [
-                input_data
+                audio_to_text_data
             ]
         }
-
-        resp = self._send_request(specs['text_classification']['port'], '/model/predict', payload)
+        resp = self._send_request(specs['text_classification']['port'], '/model/predict', json=payload)
         print("Text classification response", resp)
 
         return resp
@@ -197,22 +194,23 @@ class WorkflowHandler():
 
         # TODO: create required docker containers
         print("Starting speech service")
-        speech_spec = self.create_service_temp('speech', 'codait/max-speech-to-text-converter', 5000)
+        #speech_spec = self.create_service_temp('speech', 'codait/max-speech-to-text-converter', 5000)
+        speech_spec = self.create_service_temp('speech', 'mayukuse2424/edgecomputing-speech-to-text', 5000)
+
+        print("Starting audio Analysis service")
+        thread_spec = self.create_service_temp('audio_analysis', 'sayerwer/threataud', 5005)
+
+        print("Starting text keywordservice")
+        text_sem_spec = self.create_service_temp('text_keywords','sayerwer/text_semantics:text_semantics',5000)
+
+        print("Starting mongo service")
+        mongo_spec = self.create_service_temp('mongodb', 'mongo', 27017, mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
 
         print("Starting compression service")
         compress_spec = self.create_service_temp('compression', 'mayukuse2424/edgecomputing-compression', 5001)
 
         print("Starting text classification service")
         classifier_spec = self.create_service_temp('text_classification', 'quay.io/codait/max-toxic-comment-classifier', 5000)
-        
-        print("Starting text keywordservice")
-        text_sem_spec = self.create_service_temp('text_keywords','sayerwer/text_semantics:text_semantics',5000)
-
-        print("Starting mongo service")
-        mongo_spec = self.create_service_temp('mongodb', 'mongo', 27017, mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
-        
-        print("Starting Audio Analysis service")
-        thread_spec = self.create_service_temp('audio_analysis', 'sayerwer/threataud', 5005)
 
         resp = self.run_dataflow_a({
             'speech': speech_spec,
@@ -236,8 +234,11 @@ class WorkflowHandler():
         print("Stopping text classification service")
         classifier_spec['service_obj'].remove()
 
-        print("Stopping Text Keywords service")
+        print("Stopping text keywords service")
         text_sem_spec['service_obj'].remove()
+
+        print("Stopping audio analysis service")
+        thread_spec['service_obj'].remove()
 
         return resp
 
@@ -248,17 +249,20 @@ class WorkflowHandler():
         print("Starting speech service")
         speech_spec = self.create_service_persist('speech')
 
+        print("Starting mongo service")
+        mongo_spec = self.create_service_persist('mongodb', mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
+
+        print("Starting audio Analysis service")
+        thread_spec = self.create_service_persist('audio_analysis')
+
+        print("Starting text keywordservice")
+        text_sem_spec = self.create_service_persist('text_keywords')
+
         print("Starting compression service")
         compress_spec = self.create_service_persist('compression')
 
         print("Starting text classification service")
         classifier_spec = self.create_service_persist('text_classification')
-
-        print("Starting text keywordservice")
-        text_sem_spec = self.create_service_persist('text_keywords')
-
-        print("Starting mongo service")
-        mongo_spec = self.create_service_persist('mongodb', mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
 
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
@@ -267,7 +271,8 @@ class WorkflowHandler():
             'compression': compress_spec,
             'text_classification': classifier_spec,
             'text_keywords': text_sem_spec,
-            'mongodb': mongo_spec
+            'mongodb': mongo_spec,
+            'audio_analysis': thread_spec
         }, input_data)
 
         return resp
