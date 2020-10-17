@@ -52,7 +52,7 @@ class WorkflowHandler():
         '''
         Using new session for every instance of workflow. This helps to reduce
         no. of tcp connections. It also provides a retry mechanism allowing
-        newly created services/containers to start 
+        newly created services/containers to start
         '''
         retry_strategy = Retry(
             total=50,
@@ -73,12 +73,12 @@ class WorkflowHandler():
                 json=json,
                 files=files
             ).json()
-                 
+
     def create_service_temp(self, name, image, internal_port, mounts=[]):
         random_port = random.randint(10000, 65500)
 
         endpoint_spec = docker.types.EndpointSpec(ports={random_port:internal_port})
-                
+
         service = self.swarm_client.services.create(
             image=image,
             name='{name}-temp-{port}'.format(name=name, port=random_port),
@@ -101,7 +101,7 @@ class WorkflowHandler():
 
         if service_spec is not None:
             # TODO: add check to see if service close to termination
-            
+
             service_spec['last_updated'] = int(time.time() * 1000)
 
             return service_spec
@@ -133,30 +133,17 @@ class WorkflowHandler():
         return service_spec
 
     def run_dataflow_a(self, specs, input_data):
-        mongo_url = "mongodb://10.176.67.87:27017"
-        client = MongoClient(mongo_url)
-        db = client["audio"] #using a database named audio
-	
-        #inserted = {"filename":"need to pull name here", "filesize":"14 Zetabytes", "additional details":"will be determined in the future"}
-        """
-        filename = "sample.mp3"
-        audio_file = open(filename, "rb")
-        audio_file_data = audio_file.read()
+        mongo_url = "mongodb://10.176.67.87:{port}".format(port=specs['mongodb']['port'])
         
-            audio_files = db["files"]
-        output = audio_files.insert_one({"filename": filename, "data":audio_file_data})
-
-            print("Data pushed to db... " + str(output))
-            
-        query = { "filename":filename }
-        doc = audio_files.find(query)
-        for x in doc:
-            print(x)
-        """
+        # TODO: add retry and backoff on connection failure
+        client = MongoClient(mongo_url)
+        db_audio = client["audio"] #using a database named audio
+        db_speech = client["speech"]
+        speech_table = db_speech["speech_to_text"]
 
         # TODO: Send request to component in order one-by-one and transform result
         # as required for next component
-        
+
         print("Sending payload to convert speech to text")
         payload = {"file": input_data}
         resp = self._send_request(specs['speech']['port'], '/speech_to_text', files=payload)
@@ -172,7 +159,14 @@ class WorkflowHandler():
         payload = {'data': audio_to_text_data}
         resp = self._send_request(specs['text_keywords']['port'], '/text_keywords', json=payload)
         print("Text keywords response", resp)
-        
+
+        try:
+            print("Storing audio and text response in mongo database")
+            output = speech_table.insert_one({"text": audio_to_text_data, "audio": Binary(bytes(input_data))})
+            print("Data pushed to speech db... ", str(output))
+        except:
+            print("Connection error, mongo service is not up")
+            
         print("Sending payload to compress input data")
         payload = {"type": "gzip","data": audio_to_text_data}
         resp = self._send_request(specs['compression']['port'], '/compress', json=payload)
@@ -203,8 +197,12 @@ class WorkflowHandler():
         print("Starting text keywordservice")
         text_sem_spec = self.create_service_temp('text_keywords','sayerwer/text_semantics:text_semantics',5000)
 
+        # Note: starting mongo as persistent, since volumes can only be mounted on one db component at a time
         print("Starting mongo service")
-        mongo_spec = self.create_service_temp('mongodb', 'mongo', 27017, mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
+        mongo_spec = self.create_service_persist('mongodb', mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
+
+        # print("Starting mongo service")
+        # mongo_spec = self.create_service_temp('mongodb', 'mongo', 27017, mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
 
         print("Starting compression service")
         compress_spec = self.create_service_temp('compression', 'mayukuse2424/edgecomputing-compression', 5001)
@@ -227,7 +225,7 @@ class WorkflowHandler():
 
         print("Stopping mongo service")
         mongo_spec['service_obj'].remove()
-        
+
         print("Stopping compression service")
         compress_spec['service_obj'].remove()
 
