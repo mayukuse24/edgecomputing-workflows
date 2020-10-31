@@ -7,6 +7,8 @@ from bson import Binary
 import docker
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+from Workflow import flow,component_node
+from Component import Component
 
 COMPONENT_CONFIG_MAP = {
     'compression': {
@@ -43,6 +45,10 @@ COMPONENT_CONFIG_MAP = {
 
 # TODO: switch to base class and inherit for each workflow
 class WorkflowHandler():
+    workflows ={}
+    base_components = []
+    used_ports =[]
+    used_ids =[]
     def __init__(self):
         self.swarm_client = docker.from_env()
         self.http_session = self._create_http_session()
@@ -68,11 +74,13 @@ class WorkflowHandler():
 
     def _send_request(self, app_port, path, json=None, files=None):
         # TODO: use domain name instead of ips
-        return self.http_session.post(
-                'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
+        return self.http_session.post('http://0.0.0.0:{port}{path}'.format(port=app_port, path=path),json=json,files=files).json()
+        """ return self.http_session.post(
+                'http://0.0.0.0:{port}{path}'.format(port=app_port, path=path),
+                #'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
                 json=json,
                 files=files
-            ).json()
+            ).json()"""
 
     def create_service_temp(self, name, image, internal_port, mounts=[]):
         random_port = random.randint(10000, 65500)
@@ -274,3 +282,81 @@ class WorkflowHandler():
         }, input_data)
 
         return resp
+
+    def gen_component_start(self,comp:Component,id):
+        #to do make non temp componets work
+        print(comp.target_port[id-1])
+        endpoint_spec = docker.types.EndpointSpec(ports={comp.target_port[id-1]: comp.internal_port})
+        service = self.swarm_client.services.create(
+            image=comp.image,
+            name='{name}-temp-{port}'.format(name=comp.name, port=comp.target_port[id-1]),
+            endpoint_spec=endpoint_spec,
+            mounts=comp.mounts
+        )
+        comp.add_spec(id,service)
+
+    def gen_init_test(self):
+
+        cmp=Component(5001,"Compression",'mayukuse2424/edgecomputing-compression','/compress')
+        cmp.input_type = 4
+        cmp.output_type = 5
+        self.base_components += [cmp]
+        cmp = Component(5050, "Shorten", 'shorten',"/summerize")
+        cmp.input_type = 0
+        cmp.output_type = 0
+        self.base_components += [cmp]
+    def gen_get_flow_id(self):
+        return random.randint(0, 65500)
+    def gen_flow_init_test(self):
+        w_test = flow()
+        n =1
+        print(len(w_test.start_components),"\n\n\n\n\n\n\n\n\n")
+        id,_=self.base_components[1].create(self.used_ports,True)
+        nd = component_node(self.base_components[1],id,expected_inputs=1,order_number=0)
+        nd.set_nodeid(self.used_ids)
+        id2, _ = self.base_components[1].create(self.used_ports, True)
+        print(self.base_components[1].target_port)
+        nd2 = component_node(self.base_components[1], id2, expected_inputs=1, order_number=1)
+        nd.set_nodeid(self.used_ids)
+        nd.next_set += [nd2]
+        w_test.start_components =[nd]
+        w_test.flow_id =0
+        w_test.run_order = [nd2,nd]
+        return w_test
+
+
+    def start_generic_test(self,wf:flow):
+        self.workflows[wf.flow_id] = wf
+        for cmp_nd in wf.run_order:
+            #print(cmp_nd.id,"\n\n\n\n\n\n\n\n\n\n")
+            if not cmp_nd.stat:
+                self.gen_component_start(cmp_nd.comp, cmp_nd.id)
+                #cmp_nd.stat = True
+
+
+
+    def gen_dataflow_test(self,data,id):
+        print(data,type(data))
+        ##add multipath suport
+        unrun_components = self.workflows[id].start_components
+        added_ids =[]
+        count =0
+        while count<len(unrun_components):
+            print(0)
+            curr = unrun_components[count]
+            if curr.nodeid not in added_ids:
+                added_ids += [curr.nodeid]
+            curr.give_data(data)
+            print(2,curr.data[0],type(curr.data[0]))
+            resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, json=curr.data[0])
+            print(1)
+            curr.data=[]
+            print(resp,"\n\n\n\n\n\n\n\n\n\n")
+            for cm in curr.next_set:
+                cm.give_data(resp)
+                if cm.nodeid not in added_ids:
+                    unrun_components.append(cm)
+                    added_ids += [cm.nodeid]
+            count +=1
+
+
