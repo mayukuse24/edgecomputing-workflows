@@ -20,9 +20,25 @@ def compress():
     global workflow_handler
 
     is_persist = request.args.get('persist', False)
+    
+#     content = request.get_json(force=True)
 
     try:
         data = request.files["audio"]
+        
+#         components_data = content["components"]
+#         filename = content["filename"]
+#         components = components_data.keys()
+#         component_flow = " "
+#         for key, value in components_data.items():
+#             flow = ' '.join(value)
+#             #component_flow.join(str(key) + " : " + ' '.join(value))
+#             complete_flow = key + " --> " + flow
+#             component_flow += complete_flow + " "
+#         return jsonify({"number": str(len(components)),
+#                         "components": ' '.join(components),
+#                         "data-flow": component_flow,
+#                         "filename": str(filename)})
     except KeyError:
         return jsonify({"error": "audio file not provided"})
 
