@@ -136,7 +136,7 @@ class WorkflowHandler():
         mongo_url = "mongodb://10.176.67.87:{port}".format(port=specs['mongodb']['port'])
         
         # TODO: add retry and backoff on connection failure
-        client = MongoClient(mongo_url, reconnectTries = 60, reconnectInterval = 1000)
+        client = MongoClient(mongo_url)
         db_audio = client["audio"] #using a database named audio
         db_speech = client["speech"]
         speech_table = db_speech["speech_to_text"]
