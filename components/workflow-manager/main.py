@@ -1,6 +1,8 @@
 import gzip
 import json
 import requests
+import threading
+import random
 
 from flask import Flask, request, jsonify
 import docker
@@ -12,25 +14,66 @@ app = Flask(__name__)
 
 workflow_handler = None
 wh =None
+unrouted_data = {}
 
 @app.route('/')
 def hello_world():
     return 'Welcome to the workflow manager'
-@app.route('/test',methods=['POST'])
+@app.route('/test_init',methods=['POST'])
 def test_starting():
 
-    a = wh.gen_flow_init_test()
+    a,id = wh.gen_flow_init_test_3()
     wh.start_generic_test(a)
+    runner = threading.Thread(target=wh.run_workflow,args=(a.flow_id,))
+    runner.start()
+    return jsonify({"status": "ok","id":id})
 
-    return 'Welcome to the workflow manager'
+@app.route('/get_output',methods=['POST'])
+def test_run_flow():
 
+    output = wh.get_data(request.get_json(force=True)["workflow_id"])
+    ret ="Current results of workflow id# "+str(request.get_json(force=True)["workflow_id"])+":"
+    for out in output:
+        ret = ret +", "+str(out)
+    return  jsonify({"results:":ret})
+
+@app.route('/route', methods=['POST'])
+def route_data():
+    try:
+        dat = unrouted_data[request.get_json(force=True)["location"]]
+        workflow = request.get_json(force=True)["workflow_id"]
+        print(dat[1])
+        wh.gen_output(dat[0],workflow,dat[1])
+    except:
+        return jsonify({"status": "Failure to correctly route data"})
+    return jsonify({"status": "sent to workflow"})
+
+def get_location():
+    return random.randint(0, 70000)
 
 @app.route('/data', methods=['POST'])
-def test_():
-    print(request.get_json(force=True))
-    wh.gen_dataflow_test(request.get_json(force=True),0)
+def data_recived():
+    print(len(request.files))
+    print(len(request.args))
+    wf = int(request.form['workflow_id'])
+    try:
+        data = request.files["data"]
+        type = 1
+    except:
+        try:
+            data = request.get_json(force=True)["data"]
+            type =0
+        except:
+            return jsonify({"status": "Error data not provided as expected"})
+    #loc = get_location()
+    #unrouted_data[loc] = (data,type)
 
-    return 'Welcome to the workflow manager'
+    try:
+        wh.gen_output(data, wf, type)
+       # print("ters")
+    except:
+        return jsonify({"status": "failed processing."})
+    return jsonify({"status": "data sent to workflow."})
 """
 @app.route('/workflow/surveil', methods=['POST'])
 def compress():

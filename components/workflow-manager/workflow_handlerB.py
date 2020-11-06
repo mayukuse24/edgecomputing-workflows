@@ -3,13 +3,16 @@ import time
 import random
 from pymongo import MongoClient
 from bson import Binary
-
+#import threading
+from time import sleep
 import docker
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+import Workflow
 from Workflow import flow,component_node
 from Component import Component
 
+#max threads =100
 COMPONENT_CONFIG_MAP = {
     'compression': {
         'image': 'mayukuse2424/edgecomputing-compression',
@@ -45,10 +48,15 @@ COMPONENT_CONFIG_MAP = {
 
 # TODO: switch to base class and inherit for each workflow
 class WorkflowHandler():
+    mongo_url = ""
     workflows ={}
+    returns = {}
     base_components = []
     used_ports =[]
     used_ids =[]
+    db_audio = None
+    db_speech = None
+    speech_table = None
     def __init__(self):
         self.swarm_client = docker.from_env()
         self.http_session = self._create_http_session()
@@ -61,7 +69,7 @@ class WorkflowHandler():
         newly created services/containers to start
         '''
         retry_strategy = Retry(
-            total=50,
+            total=60,
             backoff_factor=2
         )
 
@@ -74,7 +82,8 @@ class WorkflowHandler():
 
     def _send_request(self, app_port, path, json=None, files=None):
         # TODO: use domain name instead of ips
-        return self.http_session.post('http://0.0.0.0:{port}{path}'.format(port=app_port, path=path),json=json,files=files).json()
+        return self.http_session.post(
+            'http://0.0.0.0:{port}{path}'.format(port=app_port, path=path),json=json,files=files).json()
         """ return self.http_session.post(
                 'http://0.0.0.0:{port}{path}'.format(port=app_port, path=path),
                 #'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
@@ -202,7 +211,7 @@ class WorkflowHandler():
         print("Starting audio Analysis service")
         thread_spec = self.create_service_temp('audio_analysis', 'sayerwer/threataud', 5005)
 
-        print("Starting text keywordservice")
+        print("Starting text keyword service")
         text_sem_spec = self.create_service_temp('text_keywords','sayerwer/text_semantics:text_semantics',5000)
 
         # Note: starting mongo as persistent, since volumes can only be mounted on one db component at a time
@@ -283,6 +292,29 @@ class WorkflowHandler():
 
         return resp
 
+    def gen_start_db(self,comp:Component,id):
+        name = 'mongodb'
+        mounts = ["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"]
+
+        endpoint_spec = docker.types.EndpointSpec(
+            ports={comp.target_port[id-1]: comp.internal_port}
+        )
+
+        service = self.swarm_client.services.create(
+            image=comp.image,
+            name='{name}-persist-{port}'.format(name=name, port=comp.target_port[id-1]),
+            endpoint_spec=endpoint_spec,
+            mounts=mounts
+        )
+        comp.add_spec(id, service)
+        mongo_url ="mongodb://10.176.67.87:{port}".format(port=comp.target_port[id-1])
+        # TODO: add retry and backoff on connection failure
+        client = MongoClient(mongo_url)
+        db_audio = client["audio"]  # using a database named audio
+        db_speech = client["speech"]
+        speech_table = db_speech["speech_to_text"]
+
+
     def gen_component_start(self,comp:Component,id):
         #to do make non temp componets work
         print(comp.target_port[id-1])
@@ -294,6 +326,7 @@ class WorkflowHandler():
             mounts=comp.mounts
         )
         comp.add_spec(id,service)
+        #service.run()
 
     def gen_init_test(self):
 
@@ -305,19 +338,80 @@ class WorkflowHandler():
         cmp.input_type = 0
         cmp.output_type = 0
         self.base_components += [cmp]
+        cmp=Component(5000,'speech', 'mayukuse2424/edgecomputing-speech-to-text','/speech_to_text')
+        cmp.input_type = 1
+        cmp.output_type = 2
+        self.base_components += [cmp]
+        cmp = Component(5000, 'text_keywords', 'sayerwer/text_semantics:text_semantics', '/text_keywords')
+        cmp.input_type = 0
+        cmp.output_type = -1
+        self.base_components += [cmp]
+        cmp = Component(5005,"audio_analysis",'sayerwer/threataud','/audio_analysis')
+        cmp.input_type =1
+        cmp.output_type = 6
+        self.base_components += [cmp]
+        cmp = Component(5000, "classify", 'quay.io/codait/max-toxic-comment-classifier', '/model/predict')
+        cmp.input_type = 7
+        cmp.output_type = -1
+        self.base_components += [cmp]
+        cmp = Component(27017, "mongodb", 'mongo', None)
+        cmp.input_type = 3
+        cmp.output_type = -1
+        self.base_components += [cmp]
+
     def gen_get_flow_id(self):
         return random.randint(0, 65500)
+    def gen_flow_init_test_3(self):
+        w_test = flow()
+        w_test.flow_id = self.gen_get_flow_id()
+
+        nd1 = self.gen_init_comp(0, True, 1, 1) # compression
+        nd2 = self.gen_init_comp(2, True, 1, 0) # speech to text
+        nd3 = self.gen_init_comp(4, True, 1, 0) # audio analysis
+        nd4 = self.gen_init_comp(3, True, 1, 1) # text keywords
+        nd5 = self.gen_init_comp(5, True, 1, 1) # classification
+        nd6 = self.gen_init_comp(6, False, 1, 1) # database
+        nd2.next_set = [nd4, nd5, nd1, nd6]
+
+
+        w_test.start_components = [nd2,nd3,nd6]
+        w_test.flow_id = self.gen_get_flow_id()
+
+        w_test.run_order = [nd6,nd5,nd4,nd3,nd2,nd1]
+        return w_test,w_test.flow_id
+
+    def gen_init_comp(self,cmp,temp,inp=1,ord=0):
+        idq, _ = self.base_components[int(cmp)].create(self.used_ports, temp)
+        nd = component_node(self.base_components[int(cmp)], idq, expected_inputs=inp, order_number=ord)
+        nd.set_nodeid(self.used_ids)
+        return nd
+
+    def gen_flow_init_test_2(self):
+        w_test = flow()
+
+        idq, _ = self.base_components[2].create(self.used_ports, True)
+        nd = component_node(self.base_components[2], idq, expected_inputs=1, order_number=0)
+        nd.set_nodeid(self.used_ids)
+        id2, _ = self.base_components[1].create(self.used_ports, True)
+        nd2 = component_node(self.base_components[1], id2, expected_inputs=1, order_number=1)
+        nd2.set_nodeid(self.used_ids)
+        nd.next_set += [nd2]
+        w_test.start_components = [nd]
+        w_test.flow_id = 0
+        w_test.run_order = [nd2, nd]
+        return w_test
+
     def gen_flow_init_test(self):
         w_test = flow()
         n =1
-        print(len(w_test.start_components),"\n\n\n\n\n\n\n\n\n")
+        #print(len(w_test.start_components),"\n\n\n\n\n\n\n\n\n")
         id,_=self.base_components[1].create(self.used_ports,True)
         nd = component_node(self.base_components[1],id,expected_inputs=1,order_number=0)
         nd.set_nodeid(self.used_ids)
         id2, _ = self.base_components[1].create(self.used_ports, True)
-        print(self.base_components[1].target_port)
+        #print(self.base_components[1].target_port)
         nd2 = component_node(self.base_components[1], id2, expected_inputs=1, order_number=1)
-        nd.set_nodeid(self.used_ids)
+        nd2.set_nodeid(self.used_ids)
         nd.next_set += [nd2]
         w_test.start_components =[nd]
         w_test.flow_id =0
@@ -327,36 +421,98 @@ class WorkflowHandler():
 
     def start_generic_test(self,wf:flow):
         self.workflows[wf.flow_id] = wf
+        self.returns[wf.flow_id] =[]
         for cmp_nd in wf.run_order:
-            #print(cmp_nd.id,"\n\n\n\n\n\n\n\n\n\n")
+            print(cmp_nd.comp.path,cmp_nd.comp.image, cmp_nd.comp.internal_port)
             if not cmp_nd.stat:
-                self.gen_component_start(cmp_nd.comp, cmp_nd.id)
-                #cmp_nd.stat = True
+                if cmp_nd.comp.path is not None:
+                    #print("test")
+                    self.gen_component_start(cmp_nd.comp, cmp_nd.id)
+                    #cmp_nd.stat = True
+                else:
+                    self.gen_start_db(cmp_nd.comp, cmp_nd.id)
 
-
-
-    def gen_dataflow_test(self,data,id):
-        print(data,type(data))
-        ##add multipath suport
-        unrun_components = self.workflows[id].start_components
-        added_ids =[]
+    def run_workflow(self, id):
+        wf = self.workflows[id]
         count =0
-        while count<len(unrun_components):
+        output =[]
+
+        while True:
+            if wf.run_items <len(wf.data):
+                count =0
+                resp = self.run_pass(wf,wf.data[wf.run_items])
+                self.returns[id] += [resp]
+                wf.run_items +=1
+            else:
+                sleep(0.050+count*.50)
+                count+=1
+        #output
+        #return output
+    def run_pass(self,wf,data):
+        print(data, type(data))
+        ##add multipath suport
+        unrun_components = wf.start_components
+        added_ids = []
+        count = 0
+
+        for cm in wf.start_components:
+            print("aaaaaaaaaaaaaaaaa")
+            added_ids += [cm.nodeid]
+            cm.give_data(data)
+            if cm.order_number !=0:
+                unrun_components.remove(cm)
+
+
+
+        while count < len(unrun_components):
             print(0)
             curr = unrun_components[count]
-            if curr.nodeid not in added_ids:
-                added_ids += [curr.nodeid]
-            curr.give_data(data)
-            print(2,curr.data[0],type(curr.data[0]))
-            resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, json=curr.data[0])
-            print(1)
-            curr.data=[]
-            print(resp,"\n\n\n\n\n\n\n\n\n\n")
+           # if curr.nodeid not in added_ids:
+                #print(77)
+                #added_ids += [curr.nodeid]
+                #curr.give_data(data)
+            print(curr.data)
+            #print(2, curr.data[0][0], type(curr.data[0][0]))
+            dat = Workflow.convert(curr.data[0][1],curr.comp.input_type,curr.data[0][0])
+            print("\n\n\n\n\n\n\n\n",dat)
+            print(curr.comp.spec[curr.id]['port'], curr.comp.path,curr.id)
+
+            if curr.comp.input_type in [0,2,4]:
+                resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, json=dat)
+            elif curr.comp.input_type in [1]:
+                print("test")
+                payload = {"file":dat}
+                resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, files=payload)
+            elif curr.comp.input_type in [3]:
+                try:
+                    print("Storing audio and text response in mongo database")
+                    output = self.speech_table.insert_one(dat)
+                    print("Data pushed to speech db... ", str(output))
+                except:
+                    print("Connection error, mongo service is not up")
+            print(resp)
+            curr.data = []
+            #print(resp, "\n\n\n\n\n\n\n\n\n\n")
             for cm in curr.next_set:
-                cm.give_data(resp)
-                if cm.nodeid not in added_ids:
+                print(11)
+                cm.give_data((resp, curr.comp.output_type))
+                if cm not in unrun_components:
+                    print(14)
                     unrun_components.append(cm)
                     added_ids += [cm.nodeid]
-            count +=1
+            count += 1
+        return resp
 
+    def get_data(self,id):
+        if id not in self.returns:
+            return [{"error":"The requested flow has not been initialized"}]
+        return self.returns[id]
+
+    def gen_output(self,data,id,type):
+        print(self.workflows)
+        wf = self.workflows[id] #.data += data
+        wf.data+= [(data,type)]
+        dt = len(wf.data)
+        while wf.run_items <dt:
+            sleep(.5)
 
