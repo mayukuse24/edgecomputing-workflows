@@ -1,6 +1,7 @@
 import requests
 import time
 import random
+import uuid
 from pymongo import MongoClient
 from bson import Binary
 
@@ -132,7 +133,9 @@ class WorkflowHandler():
 
         return service_spec
 
-    def run_dataflow_a(self, specs, input_data):
+    def run_dataflow_a(self, specs, input_data, workflow_id):
+        request_id = uuid.uuid4()
+
         mongo_url = "mongodb://10.176.67.87:{port}".format(port=specs['mongodb']['port'])
         
         # TODO: add retry and backoff on connection failure
@@ -152,13 +155,13 @@ class WorkflowHandler():
 
         print("Sending payload to analyse audio for tone")
         payload = {"file": input_data}
-        resp = self._send_request(specs['audio_analysis']['port'], '/audio_analysis', files=payload)
-        print("Audio analysis response", resp)
+        audioanalysis_resp = self._send_request(specs['audio_analysis']['port'], '/audio_analysis', files=payload)
+        print("Audio analysis response", audioanalysis_resp)
 
         print("Sending payload to obtain keywords from input")
         payload = {'data': audio_to_text_data}
-        resp = self._send_request(specs['text_keywords']['port'], '/text_keywords', json=payload)
-        print("Text keywords response", resp)
+        textsem_resp = self._send_request(specs['text_keywords']['port'], '/text_keywords', json=payload)
+        print("Text keywords response", textsem_resp)
 
         try:
             print("Storing audio and text response in mongo database")
@@ -178,12 +181,79 @@ class WorkflowHandler():
                 audio_to_text_data
             ]
         }
-        resp = self._send_request(specs['text_classification']['port'], '/model/predict', json=payload)
-        print("Text classification response", resp)
+        textclassify_resp = self._send_request(specs['text_classification']['port'], '/model/predict', json=payload)
+        print("Text classification response", textclassify_resp)
 
-        return resp
+        # TODO: calculate final threat level based on component results
+        threat_level = 0 # ranges between 0 to 100
 
-    def run_workflow_a_temp(self, input_data):
+        if audioanalysis_resp is not None:
+            audio_threat = audioanalysis_resp.get('Inaccuracy', 0)
+            threat_level = max(threat_level, audio_threat)
+
+        if textsem_resp is not None:
+            sentiments = textsem_resp.get('Sentence Sentiments', [0])
+
+            sem_threat = 0
+            if len(sentiments) > 0:
+                sem_threat = (sum(sentiments) / len(sentiments)) * 100
+
+            threat_level = max(threat_level, sem_threat)
+
+        if textclassify_resp is not None:
+            results = textclassify_resp.get('results', [])
+
+            classify_threat = 0
+            if len(results) > 0:
+                pred_buckets = results[0].get('predictions', {})
+
+                classify_threat = max(list(pred_buckets.values())) * 100
+
+            threat_level = max(threat_level, classify_threat)
+
+        is_threat = False
+        if threat_level > 50:
+            is_threat = True
+
+        db = client["workflow-a"]
+        results_table = db["results"]
+
+        try:
+            print("Storing threat level {} for workflow {}, request {} in database".format(threat_level, ))
+            threat_resp = {
+                'workflow_id': workflow_id,
+                'request_id': str(request_id),
+                'speech_text': audio_to_text_data,
+                'threat_level': int(threat_level),
+                'is_threat': is_threat
+            }
+
+            output = results_table.insert_one({
+                'workflow_id': workflow_id,
+                'request_id': str(request_id),
+                'speech_text': audio_to_text_data,
+                'threat_level': int(threat_level),
+                'is_threat': is_threat
+            })
+            print("Stored result in workflow-a db... ")
+        except:
+            print("Connection error, mongo service is not up")
+
+        # TODO: call aggregator/mongodb to aggregate past threat results for workflow_id
+        agg_query = [
+            { "$match": { "workflow_id": workflow_id } },
+            { "$group": { "_id": "$is_threat", "count": { "$sum": 1 } } }
+        ]
+
+        agg_results = results_table.aggregate(agg_query)
+
+        print(agg_results)   
+
+        threat_summary = agg_results
+
+        return {'result': threat_resp, 'summary': threat_summary}
+
+    def run_workflow_a_temp(self, input_data, workflow_id):
         print("Starting temporary workflow for audio surveillance")
 
         # TODO: create required docker containers
@@ -217,7 +287,7 @@ class WorkflowHandler():
             'text_keywords': text_sem_spec,
             'mongodb': mongo_spec,
             'audio_analysis': thread_spec
-        }, input_data)
+        }, input_data, workflow_id)
 
         # TODO: terminate containers
         print("Stopping speech service")
@@ -240,7 +310,7 @@ class WorkflowHandler():
 
         return resp
 
-    def run_workflow_a_persist(self, input_data):
+    def run_workflow_a_persist(self, input_data, workflow_id):
         print("Starting persistant workflow for audio surveillance")
 
         # TODO: create required components or fetch existing
@@ -271,6 +341,6 @@ class WorkflowHandler():
             'text_keywords': text_sem_spec,
             'mongodb': mongo_spec,
             'audio_analysis': thread_spec
-        }, input_data)
+        }, input_data, workflow_id)
 
         return resp

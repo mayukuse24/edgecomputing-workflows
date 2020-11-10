@@ -25,16 +25,17 @@ def create_http_session():
 
     return http
 
-def send_request(http_session, app_port, path, json=None, files=None):
+def send_request(http_session, app_port, path, params=None, json=None, files=None):
     # TODO: use domain name instead of ips
     return http_session.post(
             'http://10.176.67.85:{port}{path}'.format(port=app_port, path=path),
+            params=params,
             json=json,
             files=files
         ).json()
 
 if __name__ == "__main__": 
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 4:
         sys.exit("Not enough arguments")
 
     http_session = create_http_session()
@@ -45,10 +46,13 @@ if __name__ == "__main__":
 
     req_total = int(sys.argv[2])
 
-    if req_type == "persist":
-        url_path = '/workflow/surveil?persist=true'
-    elif req_type == "temp":
-        url_path = '/workflow/surveil'
+    workflow_id = sys.argv[3]
+
+    url_path = '/workflow/surveil'
+
+    req_params = {'workflow_id': workflow_id}
+    if req_type == 'persist':
+        req_params['persist'] = 'true'
 
     for itr in range(req_total):
         filename = random.choice(audio_files)
@@ -60,6 +64,7 @@ if __name__ == "__main__":
             http_session,
             7002,
             url_path,
+            params=req_params,
             files={'audio': audio_data}
         )
 

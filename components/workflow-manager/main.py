@@ -22,15 +22,20 @@ def compress():
     is_persist = request.args.get('persist', False)
 
     try:
+        workflow_id = request.args.get('workflow_id')
+    except KeyError:
+        return jsonify({"error": "client id not provided"})
+
+    try:
         data = request.files["audio"]
     except KeyError:
         return jsonify({"error": "audio file not provided"})
 
     # TODO: execute workflow. Do this async?
     if is_persist is False:
-        result = workflow_handler.run_workflow_a_temp(data)
+        result = workflow_handler.run_workflow_a_temp(data, workflow_id)
     else:
-        result = workflow_handler.run_workflow_a_persist(data)
+        result = workflow_handler.run_workflow_a_persist(data, workflow_id)
 
     return jsonify({"status": "ok"})
 
