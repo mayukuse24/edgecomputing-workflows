@@ -24,7 +24,7 @@ def compress():
     try:
         workflow_id = request.args.get('workflow_id')
     except KeyError:
-        return jsonify({"error": "client id not provided"})
+        return jsonify({"error": "workflow id not provided"})
 
     try:
         data = request.files["audio"]
@@ -37,9 +37,10 @@ def compress():
     else:
         result = workflow_handler.run_workflow_a_persist(data, workflow_id)
 
-    return jsonify({"status": "ok"})
+    # Using json.dumps to handle ObjectId type fields by converting to str
+    return json.dumps({"status": "ok", "response": result}, default=str)
 
 if __name__ == "__main__": 
     workflow_handler = WorkflowHandler()
 
-    app.run(host ='0.0.0.0', port = 7002, debug = True)
+    app.run(host ='0.0.0.0', port = 7003, debug = True)

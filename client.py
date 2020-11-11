@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
         resp = send_request(
             http_session,
-            7002,
+            7003,
             url_path,
             params=req_params,
             files={'audio': audio_data}

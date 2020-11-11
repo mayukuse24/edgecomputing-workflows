@@ -140,7 +140,7 @@ class WorkflowHandler():
         
         # TODO: add retry and backoff on connection failure
         client = MongoClient(mongo_url)
-        db_audio = client["audio"] #using a database named audio
+
         db_speech = client["speech"]
         speech_table = db_speech["speech_to_text"]
 
@@ -194,9 +194,11 @@ class WorkflowHandler():
         if textsem_resp is not None:
             sentiments = textsem_resp.get('Sentence Sentiments', [0])
 
+            flat_sentiments = [sentiment for sublist in sentiments for sentiment in sublist]
+
             sem_threat = 0
-            if len(sentiments) > 0:
-                sem_threat = (sum(sentiments) / len(sentiments)) * 100
+            if len(flat_sentiments) > 0:
+                sem_threat = (sum(flat_sentiments) / len(flat_sentiments)) * 100
 
             threat_level = max(threat_level, sem_threat)
 
@@ -218,26 +220,23 @@ class WorkflowHandler():
         db = client["workflow-a"]
         results_table = db["results"]
 
-        try:
-            print("Storing threat level {} for workflow {}, request {} in database".format(threat_level, ))
-            threat_resp = {
-                'workflow_id': workflow_id,
-                'request_id': str(request_id),
-                'speech_text': audio_to_text_data,
-                'threat_level': int(threat_level),
-                'is_threat': is_threat
-            }
+        # Inserting to mongodb automatically adds _id key with a new ObjectId value
+        # Using request_id as unique identifier instead of mongodb assigned id 
+        threat_resp = {
+            '_id': str(request_id),
+            'workflow_id': workflow_id,
+            'speech_text': audio_to_text_data,
+            'threat_level': int(threat_level),
+            'is_threat': is_threat
+        }
 
-            output = results_table.insert_one({
-                'workflow_id': workflow_id,
-                'request_id': str(request_id),
-                'speech_text': audio_to_text_data,
-                'threat_level': int(threat_level),
-                'is_threat': is_threat
-            })
+        print("Storing threat result in database", threat_resp)
+
+        try:    
+            output = results_table.insert_one(threat_resp)
             print("Stored result in workflow-a db... ")
-        except:
-            print("Connection error, mongo service is not up")
+        except Exception as e:
+            print(e, 'Error writing result to mongodb')
 
         # TODO: call aggregator/mongodb to aggregate past threat results for workflow_id
         agg_query = [
@@ -245,13 +244,20 @@ class WorkflowHandler():
             { "$group": { "_id": "$is_threat", "count": { "$sum": 1 } } }
         ]
 
-        agg_results = results_table.aggregate(agg_query)
+        try:
+            agg_results = list(results_table.aggregate(agg_query))
+        except Exception as e:
+            print(e, 'Error aggregating result from mongodb')
 
-        print(agg_results)   
+        print('Result from aggregation', agg_results)   
 
-        threat_summary = agg_results
+        threat_summary = {"total": 0}
+        for group in agg_results:
+            threat_summary["total"] += int(group["count"])
+            if group["_id"] == True:
+                threat_summary["threats"] = int(group["count"])
 
-        return {'result': threat_resp, 'summary': threat_summary}
+        return {'result': threat_resp, "summary": threat_summary}
 
     def run_workflow_a_temp(self, input_data, workflow_id):
         print("Starting temporary workflow for audio surveillance")
