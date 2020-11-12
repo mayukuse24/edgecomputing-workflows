@@ -19,6 +19,18 @@ unrouted_data = {}
 @app.route('/')
 def hello_world():
     return 'Welcome to the workflow manager'
+
+@app.route('/flow',methods=['POST'])
+def test_build():
+    cont = request.get_json(force=True)
+    a,id = wh.build_flow(cont["Components"])#wh.gen_flow_init_test_3()
+    wh.start_generic_test(a)
+    runner = threading.Thread(target=wh.run_workflow,args=(a.flow_id,))
+    runner.start()
+    return jsonify({"status": "ok","id":id})
+
+
+
 @app.route('/test_init',methods=['POST'])
 def test_starting():
 

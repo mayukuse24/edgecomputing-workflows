@@ -8,7 +8,7 @@ input/output types defined:
 0 - post {data:""}
 1 - post {file:...}
 2 - post {text:""}
-3 - post {text:"",audio:...}
+3 - post {text:"",audio:...}    don't convert 
 4 - post {type:"",data:""}
 5 - post {data_bytes:""}
 6 - post {tone info:"",inacuracy:int()}

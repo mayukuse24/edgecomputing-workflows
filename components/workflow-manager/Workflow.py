@@ -29,10 +29,7 @@ class component_node:
 
 
     def give_data(self,data):
-        if self.comp.input_type== 3 and len(self.data) ==1:
-            self.data = [(convert(self.data[0][1],3,self.data[0][0],data[0],data[1]),3)]
-        else:
-            self.data =[data]
+        self.data =[data]
 
 
 def convert_s2s_t(type1, type2, data:dict)-> dict:
@@ -61,7 +58,7 @@ def convert_s2s_t(type1, type2, data:dict)-> dict:
 
 
 def convert(type1, type2, data, data2=None, type3=-1) -> dict:
-    if data2 is None:
+    if type2 == 3 :
         if type1 == type2:
             return data
         elif type1 in [0,2] and type2 in [0,2,7]:
@@ -73,11 +70,11 @@ def convert(type1, type2, data, data2=None, type3=-1) -> dict:
                 datas = data["data"]
             return {"type":"gzip","data":datas}
     else:
-        if type3 == 2:
-            datas = data2["text"]
+        if type1 == 1:
+            datas = {"file":data}
         else:
-            datas = data2["data"]
-        return {"text":datas,"audio":data}
+            datas = data
+        return datas
 
 class flow:
     start_components = [] #all the components feed directly by the data source

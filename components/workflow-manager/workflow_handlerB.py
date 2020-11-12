@@ -459,13 +459,14 @@ class WorkflowHandler():
             print("aaaaaaaaaaaaaaaaa")
             added_ids += [cm.nodeid]
             cm.give_data(data)
-            if cm.order_number !=0:
-                unrun_components.remove(cm)
+            #if cm.order_number !=0:
+                #unrun_components.remove(cm)
 
 
 
         while count < len(unrun_components):
             print(0)
+            resp =""
             curr = unrun_components[count]
            # if curr.nodeid not in added_ids:
                 #print(77)
@@ -481,13 +482,13 @@ class WorkflowHandler():
                 resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, json=dat)
             elif curr.comp.input_type in [1]:
                 print("test")
-                payload = {"file":dat}
+                payload = dat#{"file":dat}
                 resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, files=payload)
             elif curr.comp.input_type in [3]:
                 try:
                     print("Storing audio and text response in mongo database")
-                    output = self.speech_table.insert_one(dat)
-                    print("Data pushed to speech db... ", str(output))
+                    resp = self.speech_table.insert_one(dat)
+                    print("Data pushed to speech db... ", str(resp))
                 except:
                     print("Connection error, mongo service is not up")
             print(resp)
@@ -496,7 +497,7 @@ class WorkflowHandler():
             for cm in curr.next_set:
                 print(11)
                 cm.give_data((resp, curr.comp.output_type))
-                if cm not in unrun_components:
+                if cm not in unrun_components or (cm.comp.name == "mongodb" and curr.comp.name != "mongodb"):
                     print(14)
                     unrun_components.append(cm)
                     added_ids += [cm.nodeid]
@@ -515,4 +516,50 @@ class WorkflowHandler():
         dt = len(wf.data)
         while wf.run_items <dt:
             sleep(.5)
+
+    name_id_map = {
+        "compress": 0,
+        "speech_to_text": 2,
+        "Threat_classifier": 4,
+        "text_semantics": 3,
+        "classify": 6,
+        "mongodb": 5,
+        "shorten": 6,
+        "aggregator": 7,
+    }
+    def build_flow(self,components):
+        w_test = flow()
+        w_test.flow_id = self.gen_get_flow_id()
+        print(components)
+        build = list(components.keys())
+        print(build)
+
+        strt_cmps = components["root"]
+        flow_map ={}
+        for cmp in strt_cmps:
+            nd2 = self.gen_init_comp(self.name_id_map[cmp], True, 1, 0)
+            flow_map[cmp] = nd2
+        for key, value in components.items():
+            if key not in strt_cmps and key not in ["root"]:
+                nd2 = self.gen_init_comp(self.name_id_map[key], True, 1, 1)
+                flow_map[key] = nd2
+        for key, value in components.items():
+            if key not in ["root"]:
+                tmp = []
+                for v in value:
+                    nx = flow_map[v]
+                    tmp += [nx]
+                nc = flow_map[key]
+                nc.next_set = tmp
+        st_cmp =[]
+        for c in strt_cmps:
+            if c not in ["root"]:
+                st_cmp += [flow_map[c]]
+        build_order = []
+        for c in build:
+            if c not in ["root"]:
+                build_order +=[flow_map[c]]
+        w_test.start_components = st_cmp
+        w_test.run_order = build_order
+        return w_test, w_test.flow_id
 
