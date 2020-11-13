@@ -131,7 +131,39 @@ class WorkflowHandler():
         self.persist_service_spec_map[name] = service_spec
 
         return service_spec
+    
+    #def safe_mongocall(call):
+    #    def _safe_mongocall(*args, **kwargs):
+    #        for i in range(5):
+    #            try:
+    #                return call(*args, **kwargs)
+    #            except pymongo.AutoReconnect:
+    #                time.sleep(pow(2,i))
+    #        print("PyMongo Error: Connection Failed")
+    #    return _safe_mongocall
 
+    #@safe_mongocall
+    def insert_data(db, collection, data):
+        for i in range(5):
+            try:
+                result=collection.insert_many(data)
+            except:
+                time.sleep(pow(2,i))
+                print("Connection Failed")
+                #return #ideally exit function call with failure message to componenet
+        print(result.inserted_ids) #can remove if necessary
+    #@safe_mongocall
+    def read_data(db, collection, query):
+        for i in range(5):
+            try:
+                result = collection.find(query)
+            except pymongo.AutoReconnect:
+                time.sleep(pow(2, i))
+                print("Connection Failed")
+                #return #ideally exit function call with failure message to componenet
+        for i in result:
+            print(i)#use this area to return data to components
+            
     def run_dataflow_a(self, specs, input_data):
         mongo_url = "mongodb://10.176.67.87:{port}".format(port=specs['mongodb']['port'])
         
