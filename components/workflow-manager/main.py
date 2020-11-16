@@ -110,4 +110,5 @@ if __name__ == "__main__":
 
     wh = WorkflowHandler()
     wh.gen_init_test()
+
     app.run(host ='0.0.0.0', port = 7002, debug = True)
