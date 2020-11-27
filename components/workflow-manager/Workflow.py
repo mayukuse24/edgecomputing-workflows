@@ -30,6 +30,8 @@ class component_node:
 
     def give_data(self,data):
         self.data =[data]
+    def __lt__(self,other):
+        return (str.lower(self.comp.name)> str.lower(other.comp.name))
 
 
 def convert_s2s_t(type1, type2, data:dict)-> dict:
@@ -58,7 +60,7 @@ def convert_s2s_t(type1, type2, data:dict)-> dict:
 
 
 def convert(type1, type2, data, data2=None, type3=-1) -> dict:
-    if type2 == 3 :
+    if type2 != 3 :
         if type1 == type2:
             return data
         elif type1 in [0,2] and type2 in [0,2,7]:
@@ -78,6 +80,7 @@ def convert(type1, type2, data, data2=None, type3=-1) -> dict:
 
 class flow:
     start_components = [] #all the components feed directly by the data source
+    count =0
     run_order = []
     CONVERSION_MAP = {2:[0]}
     flow_id =-1
@@ -85,8 +88,10 @@ class flow:
     run_items =0
 
     def __init__(self):
-        start_components = []
-        run_order = []
+        self.start_components = []
+        self.run_order = []
+        self.count =0
+        self.flow_id=-1
 
 
     def check_starers(self):

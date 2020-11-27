@@ -13,6 +13,10 @@ input/output types defined:
 5 - post {data_bytes:""}
 6 - post {tone info:"",inacuracy:int()}
 7 - post {text:[""]}
+
+
+23 - text semantics output
+24 - classify output
 """
 
 

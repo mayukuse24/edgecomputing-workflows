@@ -23,7 +23,11 @@ def hello_world():
 @app.route('/flow',methods=['POST'])
 def test_build():
     cont = request.get_json(force=True)
-    a,id = wh.build_flow(cont["Components"])#wh.gen_flow_init_test_3()
+    tm = cont["Temp"]
+    if tm==0:
+    	a,id = wh.build_flow(cont["Components"])#wh.gen_flow_init_test_3()
+    else:
+        a,id = wh.build_flow_pr(cont["Components"])
     wh.start_generic_test(a)
     runner = threading.Thread(target=wh.run_workflow,args=(a.flow_id,))
     runner.start()
@@ -45,9 +49,9 @@ def test_run_flow():
 
     output = wh.get_data(request.get_json(force=True)["workflow_id"])
     ret ="Current results of workflow id# "+str(request.get_json(force=True)["workflow_id"])+":"
-    for out in output:
-        ret = ret +", "+str(out)
-    return  jsonify({"results:":ret})
+    #for out in output:
+        #ret = ret +", "+str(out)
+    return  jsonify({"results:":output})
 
 @app.route('/route', methods=['POST'])
 def route_data():
@@ -94,21 +98,28 @@ def compress():
     is_persist = request.args.get('persist', False)
 
     try:
+        workflow_id = request.args.get('workflow_id')
+    except KeyError:
+        return jsonify({"error": "workflow id not provided"})
+
+    try:
         data = request.files["audio"]
     except KeyError:
         return jsonify({"error": "audio file not provided"})
 
     # TODO: execute workflow. Do this async?
     if is_persist is False:
-        result = workflow_handler.run_workflow_a_temp(data)
+        result = workflow_handler.run_workflow_a_temp(data, workflow_id)
     else:
-        result = workflow_handler.run_workflow_a_persist(data)
+        result = workflow_handler.run_workflow_a_persist(data, workflow_id)
 
-    return jsonify({"status": "ok"})
-"""
+    # Using json.dumps to handle ObjectId type fields by converting to str
+    return json.dumps({"status": "ok", "response": result}, default=str)
+ """   
 if __name__ == "__main__":
 
     wh = WorkflowHandler()
     wh.gen_init_test()
 
-    app.run(host ='0.0.0.0', port = 7002, debug = True)
+    app.run(host ='0.0.0.0', port = 7003, debug = True)
+

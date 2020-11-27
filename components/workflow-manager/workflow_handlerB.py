@@ -4,6 +4,7 @@ import random
 from pymongo import MongoClient
 from bson import Binary
 #import threading
+import copy
 from time import sleep
 import docker
 from requests.adapters import HTTPAdapter
@@ -81,6 +82,7 @@ class WorkflowHandler():
         return http
 
     def _send_request(self, app_port, path, json=None, files=None):
+        #print(app_port," ",path," ",files," ",files["file"]," ",type(files)," ",type(files["file"]),"iiii\n")
         # TODO: use domain name instead of ips
         return self.http_session.post(
             'http://0.0.0.0:{port}{path}'.format(port=app_port, path=path),json=json,files=files).json()
@@ -307,12 +309,12 @@ class WorkflowHandler():
             mounts=mounts
         )
         comp.add_spec(id, service)
-        mongo_url ="mongodb://10.176.67.87:{port}".format(port=comp.target_port[id-1])
+        self.mongo_url ="mongodb://0.0.0.0:{port}".format(port=comp.target_port[id-1])
         # TODO: add retry and backoff on connection failure
-        client = MongoClient(mongo_url)
-        db_audio = client["audio"]  # using a database named audio
-        db_speech = client["speech"]
-        speech_table = db_speech["speech_to_text"]
+        client = MongoClient(self.mongo_url)
+        self.db_audio = client["audio"]  # using a database named audio
+        self.db_speech = client["speech"]
+        self.speech_table = self.db_speech["speech_to_text"]
 
 
     def gen_component_start(self,comp:Component,id):
@@ -344,7 +346,7 @@ class WorkflowHandler():
         self.base_components += [cmp]
         cmp = Component(5000, 'text_keywords', 'sayerwer/text_semantics:text_semantics', '/text_keywords')
         cmp.input_type = 0
-        cmp.output_type = -1
+        cmp.output_type = 23
         self.base_components += [cmp]
         cmp = Component(5005,"audio_analysis",'sayerwer/threataud','/audio_analysis')
         cmp.input_type =1
@@ -352,7 +354,7 @@ class WorkflowHandler():
         self.base_components += [cmp]
         cmp = Component(5000, "classify", 'quay.io/codait/max-toxic-comment-classifier', '/model/predict')
         cmp.input_type = 7
-        cmp.output_type = -1
+        cmp.output_type = 24
         self.base_components += [cmp]
         cmp = Component(27017, "mongodb", 'mongo', None)
         cmp.input_type = 3
@@ -449,14 +451,25 @@ class WorkflowHandler():
         #output
         #return output
     def run_pass(self,wf,data):
+
+        audio_threat = None
+        threat_level = 0
+        sentiment = None
+        flat_sentiments = None
+        sem_threat = 0
+        results = None
+        classify_threat = None
+        is_threat = False
+        sp_txt =""
+
         print(data, type(data))
         ##add multipath suport
-        unrun_components = wf.start_components
+        unrun_components = sorted(wf.start_components)
         added_ids = []
         count = 0
 
         for cm in wf.start_components:
-            print("aaaaaaaaaaaaaaaaa")
+            print(cm)
             added_ids += [cm.nodeid]
             cm.give_data(data)
             #if cm.order_number !=0:
@@ -476,14 +489,16 @@ class WorkflowHandler():
             #print(2, curr.data[0][0], type(curr.data[0][0]))
             dat = Workflow.convert(curr.data[0][1],curr.comp.input_type,curr.data[0][0])
             print("\n\n\n\n\n\n\n\n",dat)
-            print(curr.comp.spec[curr.id]['port'], curr.comp.path,curr.id)
+            print(curr.comp.spec[curr.id]['port'], curr.comp.path,curr.id,curr.comp.input_type)
 
             if curr.comp.input_type in [0,2,4]:
                 resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, json=dat)
             elif curr.comp.input_type in [1]:
-                print("test")
-                payload = dat#{"file":dat}
+                #print("test",dat["file"].content_length)
+                #dat["file"].close()
+                payload = {"file":dat}#dat#
                 resp = self._send_request(curr.comp.spec[curr.id]['port'], curr.comp.path, files=payload)
+            
             elif curr.comp.input_type in [3]:
                 try:
                     print("Storing audio and text response in mongo database")
@@ -491,23 +506,84 @@ class WorkflowHandler():
                     print("Data pushed to speech db... ", str(resp))
                 except:
                     print("Connection error, mongo service is not up")
-            print(resp)
-            curr.data = []
+            print(resp,type(resp),"  iooioi ")
+            if curr.comp.output_type == 6 and resp is not None:
+                audio_threat = resp.get('Inaccuracy',0)
+                threat_level = max(threat_level,audio_threat)
+            elif curr.comp.output_type == 23 and resp is not None:
+                sentiments = resp['Sentence Sentiments']
+                print(sentiments,"tjjgiuiyujjjjjjjkl")
+                flat_sentiments = [sentiment for sublist in sentiments for sentiment in sublist]
+                sem_threat = 0
+                if len(flat_sentiments):
+                   sem_threat = (sum(flat_sentiments)/len(flat_sentiments))*100
+                threat_level = max(threat_level, sem_threat)
+            elif curr.comp.output_type == 25 and resp is not None:
+                results = resp.get('results',[])
+                classify_threat = 0
+                if len(results) > 0:
+                    pred_buckets = results[0].get('predictions',{})
+                    classify_threat = max(list(pred_buckets.values())) *100
+                threat_level = max(threat_level, classify_threat)
+            elif curr.comp.name == "speech":
+                sp_txt = resp["text"]
+            #curr.data = []
             #print(resp, "\n\n\n\n\n\n\n\n\n\n")
             for cm in curr.next_set:
-                print(11)
                 cm.give_data((resp, curr.comp.output_type))
                 if cm not in unrun_components or (cm.comp.name == "mongodb" and curr.comp.name != "mongodb"):
-                    print(14)
                     unrun_components.append(cm)
                     added_ids += [cm.nodeid]
             count += 1
+        if threat_level > 50:
+            is_threat = True
+        client = MongoClient(self.mongo_url)
+        dbr = client["workflow"]
+        results_table =dbr["results"]
+        threat_resp = {
+            '_id':str(wf.count)+"-"+str(wf.flow_id),
+            'workflow_id':wf.flow_id,
+            'speech_text':sp_txt,
+            'threat_level':int(threat_level),
+            'ist_threat':is_threat
+        }
+        wf.count +=1
+        try:
+            output =results_table.insert_one(threat_resp)
+        except Exception as e:
+            print(e,threat_resp)
         return resp
 
     def get_data(self,id):
+        print("\n\n\n\n\n")
+        agg_results = None
+        agg_r2 = None
         if id not in self.returns:
             return [{"error":"The requested flow has not been initialized"}]
-        return self.returns[id]
+        try:
+            agg = [
+                {"$match":{"workflow_id":id}},
+                {"$group": {"_id":"$is_threat","count":{"$sum":1}}}
+            ]
+            agg_2 = [
+                {"$match":{"workflow_id":id}},
+            ]
+            client = MongoClient(self.mongo_url)
+            dbr = client["workflow"]
+            results_table =dbr["results"]
+            agg_results = list(results_table.aggregate(agg))
+            agg_r2 = list(results_table.aggregate(agg_2))
+            print(agg_results,agg_r2)
+        except Exception as e:
+            print(e)
+        threat_summary = {"total":0}
+        for group in agg_results:
+            print(group)
+            threat_summary["total"] += int(group["count"])
+            if group["_id"] == True:
+                threat_summary["threats"] = int(group["count"])
+        print(threat_summary,agg_r2)
+        return {'summary':str(threat_summary),'results':str(agg_r2)}#self.returns[id]
 
     def gen_output(self,data,id,type):
         print(self.workflows)
@@ -522,9 +598,9 @@ class WorkflowHandler():
         "speech_to_text": 2,
         "Threat_classifier": 4,
         "text_semantics": 3,
-        "classify": 6,
-        "mongodb": 5,
-        "shorten": 6,
+        "classify": 5,
+        "mongodb": 6,
+        "shorten": 1,
         "aggregator": 7,
     }
     def build_flow(self,components):
@@ -562,4 +638,42 @@ class WorkflowHandler():
         w_test.start_components = st_cmp
         w_test.run_order = build_order
         return w_test, w_test.flow_id
+
+
+    def build_flow_pr(self,components):
+        w_test = flow()
+        w_test.flow_id = self.gen_get_flow_id()
+        print(components)
+        build = list(components.keys())
+        print(build)
+
+        strt_cmps = components["root"]
+        flow_map ={}
+        for cmp in strt_cmps:
+            nd2 = self.gen_init_comp(self.name_id_map[cmp], False, 1, 0)
+            flow_map[cmp] = nd2
+        for key, value in components.items():
+            if key not in strt_cmps and key not in ["root"]:
+                nd2 = self.gen_init_comp(self.name_id_map[key], False, 1, 1)
+                flow_map[key] = nd2
+        for key, value in components.items():
+            if key not in ["root"]:
+                tmp = []
+                for v in value:
+                    nx = flow_map[v]
+                    tmp += [nx]
+                nc = flow_map[key]
+                nc.next_set = tmp
+        st_cmp =[]
+        for c in strt_cmps:
+            if c not in ["root"]:
+                st_cmp += [flow_map[c]]
+        build_order = []
+        for c in build:
+            if c not in ["root"]:
+                build_order +=[flow_map[c]]
+        w_test.start_components = st_cmp
+        w_test.run_order = build_order
+        return w_test, w_test.flow_id
+
 
