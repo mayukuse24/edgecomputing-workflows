@@ -1,6 +1,14 @@
 from Component import Component
 import random
 
+
+
+class Workflow:
+    def __init__(self, id, dataflow):
+        self.name_to_component_map = {}
+        self.id = id
+        self.dataflow = dataflow
+
 class component_node:
     comp = None
     next_set = []

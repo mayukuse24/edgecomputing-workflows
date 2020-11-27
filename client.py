@@ -38,6 +38,23 @@ if __name__ == "__main__":
     if len(sys.argv) < 4:
         sys.exit("Not enough arguments")
 
+    # Fetch dataflow structure
+    dataflow = {
+        "dataflow" : {
+            "root":[
+                "speech_to_text",
+                "audio_analysis"
+            ],
+            "speech_to_text":[
+                "text_keywords",
+                "text_classification"
+            ],
+            "text_keywords":[
+                "mongodb"
+            ]
+        }
+    }
+
     http_session = create_http_session()
 
     audio_files = glob.glob('./test/*.wav')
@@ -54,6 +71,21 @@ if __name__ == "__main__":
     if req_type == 'persist':
         req_params['persist'] = 'true'
 
+    resp = send_request(
+        http_session,
+        7003,
+        '/workflow',
+        params=req_params,
+        json=dataflow
+    )
+    
+    print("Sent request for deploying dataflow", resp)
+
+    workflow_id = resp['id']
+    req_params = {'workflow_id': workflow_id}
+
+    #exit(1)
+
     for itr in range(req_total):
         filename = random.choice(audio_files)
         audio_data = open(filename, 'rb').read()
@@ -63,7 +95,7 @@ if __name__ == "__main__":
         resp = send_request(
             http_session,
             7003,
-            url_path,
+            '/data',
             params=req_params,
             files={'audio': audio_data}
         )

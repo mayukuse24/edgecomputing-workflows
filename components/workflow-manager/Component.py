@@ -16,61 +16,100 @@ input/output types defined:
 """
 
 
+COMPONENT_CONFIG_MAP = {
+    'compression': {
+        'image': 'mayukuse2424/edgecomputing-compression',
+        'internal_port': 5001,
+        'target_port': 6000,
+		'path': '/compress',
+		'input_type': 0,
+		'output_type': 5
+    },
+    'mongodb': {
+        'image': 'mongo',
+        'internal_port': 27017,
+        'target_port': 6001,
+		'path': None,
+		'input_type': 3,
+		'output_type': -1
+    },
+    'speech_to_text': {
+        'image': 'mayukuse2424/edgecomputing-speech-to-text',
+        'internal_port': 5000,
+        'target_port': 6002,
+		'path': '/speech_to_text',
+		'input_type': 1,
+		'output_type': 2
+    },
+    'text_classification': {
+        'image': 'quay.io/codait/max-toxic-comment-classifier',
+        'internal_port': 5000,
+        'target_port': 6003,
+		'path': '/model/predict',
+		'input_type': 7,
+		'output_type': -1
+    },
+    'text_keywords': {
+        'image': 'sayerwer/text_semantics:text_semantics',
+        'internal_port': 5000,
+        'target_port': 6004,
+		'path': '/text_keywords',
+		'input_type': 0,
+		'output_type': -1
+    },
+    'audio_analysis':{
+        'image': 'sayerwer/threataud',
+        'internal_port': 5005,
+        'target_port': 6005,
+		'path': '/audio_analysis',
+		'input_type': 1,
+		'output_type': 6
+    }
+}
 
 
 class Component:
-	internal_port = 5000
-	target_port = []
-	mounts =[]
-	name = ""
-	image = ""
-	path =""
-	input_type = 0
-	output_type = 0
-	ids = []
-	status = [] #  1 created temporary aka dont share 2 created persistent -1 killed
-	useable = []
-	count = 0
-	spec = {}
+	used_ports = {}
+
+	def __init__(self, name, is_persist, mounts=[]):
+		config = COMPONENT_CONFIG_MAP[name]
+
+		self.name = name 
+		self.image = config['image']
+		self.internal_port = config['internal_port']
+		self.path = config['path']
+		self.is_persist = is_persist
+		self.service_obj = None
+		self.target_port = None
+		self.input_type = config['input_type']
+		self.output_type = config['output_type']
 	
-	def __init__(self,port,name,img,path):
-		self.image = img
-		self.internal_port = port
-		self.name = name
-		self.status += [0]
-		self.target_port = []
-		self.path=path
-		self.spec = {}
+	def deploy(self, swarm_client, mounts=[]):
+		print("Deploying component", self.name, )
+		if self.is_persist:
+			target_port = COMPONENT_CONFIG_MAP[self.name]['target_port']
 
+			service_name = '{name}-persist-{port}'.format(name=self.name, port=target_port)
+		else:
+			target_port = random.randint(10000, 65500)
+			while Component.used_ports.get(target_port):
+				target_port = random.randint(10000, 65500)
 
-	def get_useable(self):
-		return self.useable
+			Component.used_ports[target_port] = True
 
-	def create(self,used_ports,temp):
-		self.ids.append(self.count+1)
-		self.status += [0]
-		self.count += 1
-		flag = False
+			service_name = '{name}-temp-{port}'.format(name=self.name, port=target_port)
 
-		if temp == False:
-			if len(self.useable) > 0:
-				self.target_port += self.target_port[int(self.useable[0]-1)]
-				flag =True
-			else:
-				self.useable += [id]
-		if not flag:
-			random_port = random.randint(10000, 65500)
-			while random_port in used_ports:
-				random_port = random.randint(10000, 65500)
-			used_ports += [random_port]
-			self.target_port += [random_port]
-			#print(self.target_port,self.ids)
-		return self.count, self.target_port[self.count-1]
+		self.target_port = target_port
 
-	def add_spec(self,id,ser_obj):
-		service_spec = {
-			'name': self.name,
-			'port': self.target_port[id-1],
-			'service_obj': ser_obj
-		}
-		self.spec[id] = service_spec
+		endpoint_spec = docker.types.EndpointSpec(
+            ports={ target_port:self.internal_port }
+        )
+
+		service = swarm_client.services.create(
+            image=self.image,
+            name=service_name,
+            endpoint_spec=endpoint_spec,
+            mounts=mounts
+        )
+
+		self.service_obj = service

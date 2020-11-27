@@ -3,12 +3,14 @@ import json
 import requests
 import threading
 import random
+import uuid
 
 from flask import Flask, request, jsonify
 import docker
 
 #from workflow_handler import WorkflowHandler
-from workflow_handlerB import WorkflowHandler
+#from workflow_handlerB import WorkflowHandler
+from workflow_handlerC import WorkflowHandler
 
 app = Flask(__name__)
 
@@ -20,6 +22,7 @@ unrouted_data = {}
 def hello_world():
     return 'Welcome to the workflow manager'
 
+'''
 @app.route('/flow',methods=['POST'])
 def test_build():
     cont = request.get_json(force=True)
@@ -28,9 +31,24 @@ def test_build():
     runner = threading.Thread(target=wh.run_workflow,args=(a.flow_id,))
     runner.start()
     return jsonify({"status": "ok","id":id})
+'''
+
+@app.route('/workflow',methods=['POST'])
+def create_workflow():
+    req_body = request.get_json(force=True)
+
+    dataflow = req_body["dataflow"]
+
+    workflow_id = uuid.uuid4()
+
+    is_persist = True if request.args.get('persist') else False
+
+    workflow_handler.create_workflow(workflow_id, dataflow, is_persist)
+
+    return jsonify({"status": "ok","id": workflow_id})
 
 
-
+'''
 @app.route('/test_init',methods=['POST'])
 def test_starting():
 
@@ -39,6 +57,7 @@ def test_starting():
     runner = threading.Thread(target=wh.run_workflow,args=(a.flow_id,))
     runner.start()
     return jsonify({"status": "ok","id":id})
+'''
 
 @app.route('/get_output',methods=['POST'])
 def test_run_flow():
@@ -49,6 +68,7 @@ def test_run_flow():
         ret = ret +", "+str(out)
     return  jsonify({"results:":ret})
 
+'''
 @app.route('/route', methods=['POST'])
 def route_data():
     try:
@@ -62,31 +82,31 @@ def route_data():
 
 def get_location():
     return random.randint(0, 70000)
+'''
 
 @app.route('/data', methods=['POST'])
-def data_recived():
-    print(len(request.files))
-    print(len(request.args))
-    wf = int(request.form['workflow_id'])
-    try:
-        data = request.files["data"]
-        type = 1
-    except:
-        try:
-            data = request.get_json(force=True)["data"]
-            type =0
-        except:
-            return jsonify({"status": "Error data not provided as expected"})
-    #loc = get_location()
-    #unrouted_data[loc] = (data,type)
+def data_received():
 
     try:
-        wh.gen_output(data, wf, type)
-       # print("ters")
+        workflow_id = request.args.get('workflow_id')
+
+        workflow_id = uuid.UUID(workflow_id)
     except:
-        return jsonify({"status": "failed processing."})
+        return jsonify({"status": "Invalid workflow id or none provided"})
+
+    try:
+        data = request.files["audio"]
+    except KeyError:
+        return jsonify({"status": "Error audio stream not provided"})
+
+    try:
+        resp = workflow_handler.run_dataflow(workflow_id, data)
+    except:
+        return jsonify({"status": "failed to process data point"})
+
     return jsonify({"status": "data sent to workflow."})
-"""
+
+'''
 @app.route('/workflow/surveil', methods=['POST'])
 def compress():
     global workflow_handler
@@ -111,10 +131,10 @@ def compress():
 
     # Using json.dumps to handle ObjectId type fields by converting to str
     return json.dumps({"status": "ok", "response": result}, default=str)
-    
+'''
+ 
 if __name__ == "__main__":
+    workflow_handler = WorkflowHandler()
+    #work.gen_init_test()
 
-    wh = WorkflowHandler()
-    wh.gen_init_test()
-
-    app.run(host ='0.0.0.0', port = 7003, debug = True)
+    app.run(host ='0.0.0.0', port = 7003, debug = False)
