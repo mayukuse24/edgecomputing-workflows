@@ -1,6 +1,14 @@
 curl -X POST -H 'Content-Type: multipart/form-data' 0.0.0.0:7003/data -F data=@audio_file.wav -F workflow_id=32920
 
+flow a
+
 curl -X POST -H 'Content-Type: application/json' 0.0.0.0:7003/flow -d '{"Components":{"root":["Threat_classifier","speech_to_text"],"speech_to_text":["classify","text_semantics","mongodb"],"Threat_classifier":[],"text_semantics":[],"classify":[],"mongodb":[]},"Temp":0}'
+
+
+flow b
+
+
+curl -X POST -H 'Content-Type: application/json' 0.0.0.0:7003/flow -d '{"Components":{"root":["Threat_classifier","speech_to_text","mongodb"],"speech_to_text":["classify","mongodb","shorten"],"Threat_classifier":[],"shorten":[],"classify":[],"mongodb":[]},"Temp":0}'
 
 
 curl -X POST -H 'Content-Type: application/json' 0.0.0.0:7003/get_output -d '{"workflow_id":32920}'

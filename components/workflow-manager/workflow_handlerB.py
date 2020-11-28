@@ -336,9 +336,9 @@ class WorkflowHandler():
         cmp.input_type = 4
         cmp.output_type = 5
         self.base_components += [cmp]
-        cmp = Component(5050, "Shorten", 'shorten',"/summerize")
+        cmp = Component(5000, "Shorten", 'mayukuse2424/edgecomputing-summarization',"/summarize")
         cmp.input_type = 0
-        cmp.output_type = 0
+        cmp.output_type = 27
         self.base_components += [cmp]
         cmp=Component(5000,'speech', 'mayukuse2424/edgecomputing-speech-to-text','/speech_to_text')
         cmp.input_type = 1
