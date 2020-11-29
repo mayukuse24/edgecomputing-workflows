@@ -13,6 +13,8 @@ input/output types defined:
 5 - post {data_bytes:""}
 6 - post {tone info:"",inacuracy:int()}
 7 - post {text:[""]}
+8 - post {Paragraph Key phrase:[], Sentence Key Words:[], Sentence Sentiments: [[]]}
+9 - post [{original_text: "", predictions:{}}]
 """
 
 
@@ -30,7 +32,7 @@ COMPONENT_CONFIG_MAP = {
         'internal_port': 27017,
         'target_port': 6001,
 		'path': None,
-		'input_type': 3,
+		'input_type': -1,
 		'output_type': -1
     },
     'speech_to_text': {
@@ -47,7 +49,7 @@ COMPONENT_CONFIG_MAP = {
         'target_port': 6003,
 		'path': '/model/predict',
 		'input_type': 7,
-		'output_type': -1
+		'output_type': 9
     },
     'text_keywords': {
         'image': 'sayerwer/text_semantics:text_semantics',
@@ -55,7 +57,7 @@ COMPONENT_CONFIG_MAP = {
         'target_port': 6004,
 		'path': '/text_keywords',
 		'input_type': 0,
-		'output_type': -1
+		'output_type': 8
     },
     'audio_analysis':{
         'image': 'sayerwer/threataud',
@@ -71,10 +73,11 @@ COMPONENT_CONFIG_MAP = {
 class Component:
 	used_ports = {}
 
-	def __init__(self, name, is_persist, mounts=[]):
+	def __init__(self, name, is_persist, http_session, mounts=[]):
 		config = COMPONENT_CONFIG_MAP[name]
 
-		self.name = name 
+		self.name = name
+		self.http_session = http_session
 		self.image = config['image']
 		self.internal_port = config['internal_port']
 		self.path = config['path']
@@ -102,7 +105,7 @@ class Component:
 		self.target_port = target_port
 
 		endpoint_spec = docker.types.EndpointSpec(
-            ports={ target_port:self.internal_port }
+            ports={ self.target_port:self.internal_port }
         )
 
 		service = swarm_client.services.create(
@@ -113,3 +116,19 @@ class Component:
         )
 
 		self.service_obj = service
+
+	def _send_request(self, app_port, path, json=None, files=None):
+        # TODO: use domain name instead of ips
+		print("Sending request to", self.name, app_port, path, json, files)
+		return self.http_session.post(
+                'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
+                json=json,
+                files=files
+            ).json()
+
+	def run(self, input_data):
+		# TODO: Find a better way to handle this
+		if self.input_type in [1]:
+			return self._send_request(self.target_port, self.path, files=input_data)
+		else:
+			return self._send_request(self.target_port, self.path, json=input_data)

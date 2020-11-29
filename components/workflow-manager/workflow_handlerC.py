@@ -1,16 +1,19 @@
 import requests
 import time
+import timeit
 import random
 import uuid
 from pymongo import MongoClient
+from pymongo.errors import AutoReconnect
 from bson import Binary
 
 import docker
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-from Workflow import Workflow
-from Component import Component
+from workflow import Workflow
+from component import Component
+import converter
 
 # TODO: switch to base class and inherit for each workflow
 class WorkflowHandler():
@@ -19,17 +22,19 @@ class WorkflowHandler():
         self.http_session = self._create_http_session()
         self.persist_name_to_component = {}
         self.workflow_id_to_obj = {}
-
-        print("Testing if function runs twice")
+        self.request_id_to_component_data = {}
 
         # Starting mongodb on workflow manager startup
-        component = Component("mongodb", True)
+        component = Component("mongodb", True, None)
         component.deploy(self.swarm_client, mounts=["mongodb_mongo-data-1:/data/db", "mongodb_mongo-config-1:/data/configdb"])
         self.persist_name_to_component["mongodb"] = component
 
+        mongo_url = "mongodb://10.176.67.87:{port}".format(port=component.target_port)
+        component.client = MongoClient(mongo_url)
+
     def _create_http_session(self):
         '''
-        Using new session for every instance of workflow. This helps to reduce
+        Using same session for every instance of workflow. This helps to reduce
         no. of tcp connections. It also provides a retry mechanism allowing
         newly created services/containers to start
         '''
@@ -45,76 +50,85 @@ class WorkflowHandler():
 
         return http
 
-    def _send_request(self, app_port, path, json=None, files=None):
-        # TODO: use domain name instead of ips
-        return self.http_session.post(
-                'http://10.176.67.87:{port}{path}'.format(port=app_port, path=path),
-                json=json,
-                files=files
-            ).json()
+    def aggregate(self, query, workflow_id):
+        agg_query = [
+            { "$match": { "workflow_id": workflow_id } },
+            { "$group": { "_id": "$is_threat", "count": { "$sum": 1 } } }
+        ]
 
-    def run_dataflow_a(self, specs, input_data, workflow_id):
-        request_id = uuid.uuid4()
+        agg_results = self.aggregate_db("workflow", "result", agg_query)
 
-        mongo_url = "mongodb://10.176.67.87:{port}".format(port=specs['mongodb']['port'])
-        
-        # TODO: add retry and backoff on connection failure
-        client = MongoClient(mongo_url)
+        print('Result from aggregation', agg_results)   
 
-        db_speech = client["speech"]
-        speech_table = db_speech["speech_to_text"]
+        threat_summary = {"total": 0}
+        for group in agg_results:
+            threat_summary["total"] += int(group["count"])
+            if group["_id"] == True:
+                threat_summary["threats"] = int(group["count"])
 
-        # TODO: Send request to component in order one-by-one and transform result
-        # as required for next component
+        return {"summary": threat_summary}
 
-        print("Sending payload to convert speech to text")
-        payload = {"file": input_data}
-        resp = self._send_request(specs['speech']['port'], '/speech_to_text', files=payload)
-        print("Speech to text response", resp)
-        audio_to_text_data = resp['text']
+    # TODO: move db functions into mongodb interface
+    def insert_db(self, db_name, collection_name, data):
+        print("Writing result into mongo db")
+        db_component = self.persist_name_to_component["mongodb"]
 
-        print("Sending payload to analyse audio for tone")
-        payload = {"file": input_data}
-        audioanalysis_resp = self._send_request(specs['audio_analysis']['port'], '/audio_analysis', files=payload)
-        print("Audio analysis response", audioanalysis_resp)
+        for i in range(5):
+            try:
+                db = db_component.client[db_name]
 
-        print("Sending payload to obtain keywords from input")
-        payload = {'data': audio_to_text_data}
-        textsem_resp = self._send_request(specs['text_keywords']['port'], '/text_keywords', json=payload)
-        print("Text keywords response", textsem_resp)
+                collection = db[collection_name]
 
-        try:
-            print("Storing audio and text response in mongo database")
-            output = speech_table.insert_one({"text": audio_to_text_data, "audio": Binary(bytes(input_data))})
-            print("Data pushed to speech db... ", str(output))
-        except:
-            print("Connection error, mongo service is not up")
-            
-        print("Sending payload to compress input data")
-        payload = {"type": "gzip","data": audio_to_text_data}
-        resp = self._send_request(specs['compression']['port'], '/compress', json=payload)
-        print("Compression response", resp)
+                collection.insert_one(data)
 
-        print("Sending payload to classify text")
-        payload = {
-            "text": [
-                audio_to_text_data
-            ]
-        }
-        textclassify_resp = self._send_request(specs['text_classification']['port'], '/model/predict', json=payload)
-        print("Text classification response", textclassify_resp)
+                return
+            except:
+                time.sleep(pow(2,i))
 
-        # TODO: calculate final threat level based on component results
+                print("Connection failed while writing into DB, Retrying...")
+                #return #ideally exit function call with failure message to componenet
+
+    def aggregate_db(self, db_name, collection_name, query):
+        db_component = self.persist_name_to_component["mongodb"]
+
+        for i in range(5):
+            try:
+                db = db_component.client[db_name]
+
+                collection = db[collection_name]
+
+                result = list(collection.aggregate(query))
+
+                return result
+            except AutoReconnect:
+                time.sleep(pow(2, i))
+
+                print("Connection failed while reading from DB, Retrying...")
+            except Exception as e:
+                print(e, 'Error aggregating result from mongodb')
+
+                raise e
+
+    def reduce_dataflow(self, component_to_output, workflow_id, request_id):
+        '''
+        TODO: make this function dynamic, allow to be passed by client
+        '''
+        audio_analysis_resp = component_to_output.get("audio_analysis", None)
+        text_keywords_resp = component_to_output.get("text_keywords", None)
+        text_classification_resp = component_to_output.get("text_classification", None)
+        speech_to_text_resp = component_to_output.get("speech_to_text", None)
+
         threat_level = 0 # ranges between 0 to 100
 
-        if audioanalysis_resp is not None:
-            audio_threat = audioanalysis_resp.get('Inaccuracy', 0)
+        if audio_analysis_resp is not None:
+            audio_threat = audio_analysis_resp.get('Inaccuracy', 0)
             threat_level = max(threat_level, audio_threat)
 
-        if textsem_resp is not None:
-            sentiments = textsem_resp.get('Sentence Sentiments', [0])
+        if text_keywords_resp is not None:
+            sentiments = text_keywords_resp.get('Sentence Sentiments', [0])
 
-            flat_sentiments = [sentiment for sublist in sentiments for sentiment in sublist]
+            # Select negative sentiments (0-1) in % obtained on text
+            flat_sentiments = [sublist[1] for sublist in sentiments]
 
             sem_threat = 0
             if len(flat_sentiments) > 0:
@@ -122,8 +136,8 @@ class WorkflowHandler():
 
             threat_level = max(threat_level, sem_threat)
 
-        if textclassify_resp is not None:
-            results = textclassify_resp.get('results', [])
+        if text_classification_resp is not None:
+            results = text_classification_resp.get('results', [])
 
             classify_threat = 0
             if len(results) > 0:
@@ -137,50 +151,22 @@ class WorkflowHandler():
         if threat_level > 50:
             is_threat = True
 
-        db = client["workflow-a"]
-        results_table = db["results"]
-
         # Inserting to mongodb automatically adds _id key with a new ObjectId value
         # Using request_id as unique identifier instead of mongodb assigned id 
         threat_resp = {
             '_id': str(request_id),
             'workflow_id': workflow_id,
-            'speech_text': audio_to_text_data,
+            'speech_text': speech_to_text_resp,
             'threat_level': int(threat_level),
             'is_threat': is_threat
         }
 
-        print("Storing threat result in database", threat_resp)
-
-        try:    
-            output = results_table.insert_one(threat_resp)
-            print("Stored result in workflow-a db... ")
-        except Exception as e:
-            print(e, 'Error writing result to mongodb')
-
-        # TODO: call aggregator/mongodb to aggregate past threat results for workflow_id
-        agg_query = [
-            { "$match": { "workflow_id": workflow_id } },
-            { "$group": { "_id": "$is_threat", "count": { "$sum": 1 } } }
-        ]
-
-        try:
-            agg_results = list(results_table.aggregate(agg_query))
-        except Exception as e:
-            print(e, 'Error aggregating result from mongodb')
-
-        print('Result from aggregation', agg_results)   
-
-        threat_summary = {"total": 0}
-        for group in agg_results:
-            threat_summary["total"] += int(group["count"])
-            if group["_id"] == True:
-                threat_summary["threats"] = int(group["count"])
-
-        return {'result': threat_resp, "summary": threat_summary}
+        return threat_resp
 
     def run_dataflow(self, workflow_id, data):
         request_id = uuid.uuid4()
+
+        component_to_output = {}
 
         print("Processing request for workflow id {}, request id {}".format(workflow_id, request_id))
 
@@ -190,32 +176,85 @@ class WorkflowHandler():
 
         bfs_queue = []
         for component_name in dataflow["root"]:
+            # Add element to bfs queue with info of next component and data to be used to run it
             bfs_queue.append({
-               "name": component_name,
-               "current_data": {"data": data},
-               "current_type": 0
+                "caller": "root",
+                "callee": component_name,
+                "current_data": {"data": data},
+                "current_type": 0
             })
         
         while len(bfs_queue) > 0:
             node_obj = bfs_queue.pop(0)
 
-            component = workflow_obj.name_to_component[component_name]
+            caller_name = node_obj["caller"]
+            callee_name = node_obj["callee"]
+            component = workflow_obj.name_to_component[callee_name]
             current_data = node_obj["current_data"]
             current_type = node_obj["current_type"]
 
-            # TODO: Fetch required converter and convert to input expected by component
+            print(
+                "Handling dataflow from {} to {} with data {} and type {}".format(
+                    caller_name, callee_name, current_data, current_type
+            ))
 
-            # TODO: Send request to run component
+            # Fetch required converter and convert to input expected by component
+            if current_type == -1 or component.input_type == -1:
+                input_data = current_data # Do not convert
+            else:
+                try:
+                    convert_func = converter.TYPE_TO_CONVERTER[current_type][component.input_type]
 
-            # TODO: Save intermediate output
+                    input_data = convert_func(current_data)
+                except KeyError as ke:
+                    print("Converter not found for {} type {} to {}".format(
+                        callee_name,
+                        current_type,
+                        component.input_type
+                    ))
 
-            # TODO: Put component children in bfs queue
+                    raise ke
 
-        # TODO: Run reduction code
+            print("Converted data", input_data)
 
-        # TODO: Save final result in mongodb
+            start = timeit.default_timer()
+
+            # Send request to run component
+            if callee_name == "mongodb":
+                resp = self.insert_db("workflow", caller_name, input_data)
+            else:
+                resp = component.run(input_data)
+
+            stop = timeit.default_timer()
+
+            print("component_execution_time:{} {} secs".format(callee_name, stop - start))
+
+            # Save intermediate output
+            component_to_output[callee_name] = resp
+
+            # Add components to receive output data in bfs queue
+            children = dataflow.get(callee_name, [])
+
+            for child_name in children:
+                child = workflow_obj.name_to_component[child_name]
+
+                bfs_queue.append({
+                    "caller": callee_name,
+                    "callee": child.name,
+                    "current_data": resp,
+                    "current_type": component.output_type
+                })
+
+
+        # Run reduction code
+        result = self.reduce_dataflow(component_to_output, workflow_id, request_id)
+
+        # Save final result in mongodb
+        # TODO: convert this to a db interface or Component child class
+        # TODO: switch db name to workflow type or by tenant
+        self.insert_db("workflow", "result", result)
         
-        return {}
+        return result
 
     def create_workflow(self, workflow_id, dataflow, is_persist):
         workflow_obj = Workflow(workflow_id, dataflow)
@@ -243,7 +282,7 @@ class WorkflowHandler():
 
             # Deploy component for non-persist case or first time persist
             if component is None:
-                component = Component(component_name, is_persist)
+                component = Component(component_name, is_persist, self.http_session)
 
                 component.deploy(self.swarm_client)
 

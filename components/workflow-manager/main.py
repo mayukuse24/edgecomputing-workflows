@@ -4,6 +4,7 @@ import requests
 import threading
 import random
 import uuid
+import timeit
 
 from flask import Flask, request, jsonify
 import docker
@@ -22,17 +23,6 @@ unrouted_data = {}
 def hello_world():
     return 'Welcome to the workflow manager'
 
-'''
-@app.route('/flow',methods=['POST'])
-def test_build():
-    cont = request.get_json(force=True)
-    a,id = wh.build_flow(cont["Components"])#wh.gen_flow_init_test_3()
-    wh.start_generic_test(a)
-    runner = threading.Thread(target=wh.run_workflow,args=(a.flow_id,))
-    runner.start()
-    return jsonify({"status": "ok","id":id})
-'''
-
 @app.route('/workflow',methods=['POST'])
 def create_workflow():
     req_body = request.get_json(force=True)
@@ -47,46 +37,21 @@ def create_workflow():
 
     return jsonify({"status": "ok","id": workflow_id})
 
-
-'''
-@app.route('/test_init',methods=['POST'])
-def test_starting():
-
-    a,id = wh.gen_flow_init_test_3()
-    wh.start_generic_test(a)
-    runner = threading.Thread(target=wh.run_workflow,args=(a.flow_id,))
-    runner.start()
-    return jsonify({"status": "ok","id":id})
-'''
-
-@app.route('/get_output',methods=['POST'])
-def test_run_flow():
-
-    output = wh.get_data(request.get_json(force=True)["workflow_id"])
-    ret ="Current results of workflow id# "+str(request.get_json(force=True)["workflow_id"])+":"
-    for out in output:
-        ret = ret +", "+str(out)
-    return  jsonify({"results:":ret})
-
-'''
-@app.route('/route', methods=['POST'])
-def route_data():
+@app.route('/aggregate',methods=['POST'])
+def aggregate():
     try:
-        dat = unrouted_data[request.get_json(force=True)["location"]]
-        workflow = request.get_json(force=True)["workflow_id"]
-        print(dat[1])
-        wh.gen_output(dat[0],workflow,dat[1])
-    except:
-        return jsonify({"status": "Failure to correctly route data"})
-    return jsonify({"status": "sent to workflow"})
+        workflow_id = request.args.get('workflow_id')
 
-def get_location():
-    return random.randint(0, 70000)
-'''
+        workflow_id = uuid.UUID(workflow_id)
+    except:
+        return jsonify({"status": "Invalid workflow id or none provided"})
+
+    output = workflow_handler.aggregate(query, workflow_id)
+
+    return json.dumps({"summary": output}, default=str)
 
 @app.route('/data', methods=['POST'])
 def data_received():
-
     try:
         workflow_id = request.args.get('workflow_id')
 
@@ -99,12 +64,16 @@ def data_received():
     except KeyError:
         return jsonify({"status": "Error audio stream not provided"})
 
-    try:
-        resp = workflow_handler.run_dataflow(workflow_id, data)
-    except:
-        return jsonify({"status": "failed to process data point"})
+    start = timeit.default_timer()
 
-    return jsonify({"status": "data sent to workflow."})
+    resp = workflow_handler.run_dataflow(workflow_id, data)
+
+    stop = timeit.default_timer()
+
+    print("dataflow_time:{} {} secs".format(workflow_id, stop - start))
+
+    # Using json.dumps to handle ObjectId type fields by converting to str
+    return json.dumps({"status": "ok", "response": resp}, default=str)
 
 '''
 @app.route('/workflow/surveil', methods=['POST'])

@@ -35,7 +35,7 @@ def send_request(http_session, app_port, path, params=None, json=None, files=Non
         ).json()
 
 if __name__ == "__main__": 
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 3:
         sys.exit("Not enough arguments")
 
     # Fetch dataflow structure
@@ -47,9 +47,13 @@ if __name__ == "__main__":
             ],
             "speech_to_text":[
                 "text_keywords",
-                "text_classification"
+                "text_classification",
+                "compression"
             ],
             "text_keywords":[
+                "mongodb"
+            ],
+            "text_classification":[
                 "mongodb"
             ]
         }
@@ -63,26 +67,30 @@ if __name__ == "__main__":
 
     req_total = int(sys.argv[2])
 
-    workflow_id = sys.argv[3]
+    workflow_id = None
 
-    url_path = '/workflow/surveil'
+    if len(sys.argv) >= 4:
+        workflow_id = sys.argv[3]
 
-    req_params = {'workflow_id': workflow_id}
-    if req_type == 'persist':
-        req_params['persist'] = 'true'
+    req_params = {}
 
-    resp = send_request(
-        http_session,
-        7003,
-        '/workflow',
-        params=req_params,
-        json=dataflow
-    )
+    if not workflow_id:
+        if req_type == 'persist':
+            req_params['persist'] = 'true'
+
+        resp = send_request(
+            http_session,
+            7003,
+            '/workflow',
+            params=req_params,
+            json=dataflow
+        )
     
-    print("Sent request for deploying dataflow", resp)
+        print("Deployed workflow", resp)
 
-    workflow_id = resp['id']
-    req_params = {'workflow_id': workflow_id}
+        workflow_id = resp['id']
+
+    req_params['workflow_id'] = workflow_id
 
     #exit(1)
 
