@@ -1,0 +1,16 @@
+{
+    "dataflow" : {
+        "root":[
+            "speech_to_text",
+            "audio_analysis"
+        ],
+        "speech_to_text":[
+            "text_keywords",
+            "text_summarization",
+            "compression"
+        ],
+        "text_keywords":[
+            "mongodb"
+        ]
+    }
+}

@@ -15,6 +15,7 @@ input/output types defined:
 7 - post {text:[""]}
 8 - post {Paragraph Key phrase:[], Sentence Key Words:[], Sentence Sentiments: [[]]}
 9 - post [{original_text: "", predictions:{}}]
+10 - post {Summarized Text: ""}
 """
 
 
@@ -66,6 +67,14 @@ COMPONENT_CONFIG_MAP = {
 		'path': '/audio_analysis',
 		'input_type': 1,
 		'output_type': 6
+    },
+	'text_summarization':{
+        'image': 'mayukuse2424/edgecomputing-summarization',
+        'internal_port': 5000,
+        'target_port': 6006,
+		'path': '/summarize',
+		'input_type': 0,
+		'output_type': 10
     }
 }
 

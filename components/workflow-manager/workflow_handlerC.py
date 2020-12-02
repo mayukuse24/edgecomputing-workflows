@@ -39,11 +39,11 @@ class WorkflowHandler():
         newly created services/containers to start
         '''
         retry_strategy = Retry(
-            total=50,
+            total=25,
             backoff_factor=2
         )
 
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=retry_strategy)
 
         http = requests.Session()
         http.mount("http://", adapter)
@@ -287,7 +287,7 @@ class WorkflowHandler():
                 component.deploy(self.swarm_client)
 
                 if is_persist:
-                    self.persist_name_to_component[component_name]
+                    self.persist_name_to_component[component_name] = component
 
             # Add component to map
             name_to_component[component_name] = component

@@ -1,0 +1,10 @@
+python client.py temp 200 A.json 1 &
+python client.py temp 200 A.json 2 &
+python client.py temp 200 A.json 3 &
+python client.py temp 200 A.json 4 &
+python client.py temp 200 A.json 5 &
+python client.py temp 200 B.json 6 &
+python client.py temp 200 B.json 7 &
+python client.py temp 200 B.json 8 &
+python client.py temp 200 B.json 9 &
+python client.py temp 200 B.json 10 &

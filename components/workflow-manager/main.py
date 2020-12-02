@@ -18,6 +18,7 @@ app = Flask(__name__)
 workflow_handler = None
 wh =None
 unrouted_data = {}
+DATA_COUNTER = 0
 
 @app.route('/')
 def hello_world():
@@ -46,12 +47,14 @@ def aggregate():
     except:
         return jsonify({"status": "Invalid workflow id or none provided"})
 
-    output = workflow_handler.aggregate(query, workflow_id)
+    output = workflow_handler.aggregate(None, workflow_id)
 
     return json.dumps({"summary": output}, default=str)
 
 @app.route('/data', methods=['POST'])
 def data_received():
+    global DATA_COUNTER
+
     try:
         workflow_id = request.args.get('workflow_id')
 
@@ -69,6 +72,15 @@ def data_received():
     resp = workflow_handler.run_dataflow(workflow_id, data)
 
     stop = timeit.default_timer()
+
+    DATA_COUNTER += 1
+    f = open('dataflow_time.csv', 'a')
+    f.write('{}, {}\n'.format(DATA_COUNTER, stop-start))
+    f.close()
+
+    f = open('stats/{}.csv'.format(str(workflow_id)), 'a')
+    f.write('{}\n'.format(stop-start))
+    f.close()
 
     print("dataflow_time:{} {} secs".format(workflow_id, stop - start))
 
@@ -106,4 +118,4 @@ if __name__ == "__main__":
     workflow_handler = WorkflowHandler()
     #work.gen_init_test()
 
-    app.run(host ='0.0.0.0', port = 7003, debug = False)
+    app.run(host ='0.0.0.0', port = 7003, debug = False, threaded=True)

@@ -3,6 +3,7 @@ import glob
 import requests
 import time
 import random
+import json
 
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -38,27 +39,6 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         sys.exit("Not enough arguments")
 
-    # Fetch dataflow structure
-    dataflow = {
-        "dataflow" : {
-            "root":[
-                "speech_to_text",
-                "audio_analysis"
-            ],
-            "speech_to_text":[
-                "text_keywords",
-                "text_classification",
-                "compression"
-            ],
-            "text_keywords":[
-                "mongodb"
-            ],
-            "text_classification":[
-                "mongodb"
-            ]
-        }
-    }
-
     http_session = create_http_session()
 
     audio_files = glob.glob('./test/*.wav')
@@ -67,10 +47,19 @@ if __name__ == "__main__":
 
     req_total = int(sys.argv[2])
 
+    # Fetch dataflow structure
+    dataflow_file = open('dataflow/{}'.format(sys.argv[3]), 'r')
+
+    dataflow = json.load(dataflow_file)
+
+    dataflow_file.close()
+
+    client_id = sys.argv[4]
+
     workflow_id = None
 
-    if len(sys.argv) >= 4:
-        workflow_id = sys.argv[3]
+    if len(sys.argv) >= 6:
+        workflow_id = sys.argv[5]
 
     req_params = {}
 
@@ -94,18 +83,35 @@ if __name__ == "__main__":
 
     #exit(1)
 
+    #fixed = ['test/weather_speech.wav', 'test/angry_test_1.wav', 'test/angry_test_3.wav']
     for itr in range(req_total):
-        filename = random.choice(audio_files)
+        #filename = random.choice(audio_files)
+        #filename = fixed[itr]
+        filename = audio_files[itr % len(audio_files)]
+
         audio_data = open(filename, 'rb').read()
 
-        print("Sending {} request no. {} for file {}".format(req_type, itr, filename))
+        print("Client {} sending {} request no. {} for file {}".format(client_id, req_type, itr, filename))
 
-        resp = send_request(
+        try:
+            resp = send_request(
+                http_session,
+                7003,
+                '/data',
+                params=req_params,
+                files={'audio': audio_data}
+            )
+
+            print("Response", resp)
+        except Exception as ex:
+            print("Failed request", ex)
+
+
+    summary = send_request(
             http_session,
             7003,
-            '/data',
-            params=req_params,
-            files={'audio': audio_data}
+            '/aggregate',
+            params=req_params
         )
 
-        print("Response", resp)
+    print(summary)
